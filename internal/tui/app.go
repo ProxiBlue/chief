@@ -177,7 +177,6 @@ type App struct {
 	// Diff viewer
 	diffViewer *DiffViewer
 
-
 	// Help overlay
 	helpOverlay      *HelpOverlay
 	previousViewMode ViewMode // View to return to when closing help
