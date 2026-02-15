@@ -159,34 +159,56 @@ the existing TUI flows.
 
 **Key Integration Points:**
 
-1. **PRD Creation Flow** - When creating a new PRD, offer worktree creation inline
-2. **Dashboard View** - Shows all worktrees with their PRD status at a glance
-3. **Picker Enhancement** - The existing PRD picker becomes a worktree-aware picker
-4. **Hotkeys** - Quick actions for environment control without leaving dashboard
+1. **PRD Creation Flow** - When another PRD is already running, offer worktree creation as an option
+2. **Dashboard View** - Shows PRDs; worktree-specific info (ports, env status) only when inside a worktree
+3. **Picker** - Remains a PRD picker; shows worktree path only for PRDs in separate worktrees
+4. **Hotkeys** - `[E]` (env) and `[A]` (all worktrees) only appear in the footer when inside a worktree
 
 **No New CLI Commands** - Everything happens in the TUI:
-- Creating worktrees: Part of new PRD flow or via `[N]` from dashboard
-- Listing worktrees: The dashboard IS the list
-- Switching: Select from picker, Chief spawns new terminal in that worktree
-- Environment control: Inline in dashboard with `[E]` hotkey
+- Creating worktrees: Offered during new PRD flow when parallel work is detected
+- Switching: Select from PRD picker, Chief spawns new terminal in that worktree
+- Environment control: Inline in dashboard with `[E]` hotkey (worktree-only)
 
 ---
 
 ## UX/UI Design
 
-### Design Philosophy: TUI-Native Worktree Management
+### Design Philosophy: PRD-First, Worktrees When Needed
 
-Chief is fundamentally a TUI application. Rather than bolting on CLI subcommands, worktree
-management is woven into the existing TUI patterns:
+Chief is fundamentally a TUI application focused on PRDs. Worktree support is
+available for users who want to work on multiple PRDs in parallel, but it should
+never get in the way of users who don't need it:
 
-- **Dashboard IS the worktree list** - No separate "worktree list" command needed
-- **PRD creation includes worktree creation** - Natural flow, not a separate step
-- **Picker is worktree-aware** - Shows worktrees, not just PRDs
-- **Environment control via hotkeys** - No context switching to terminal
+- **Dashboard focuses on PRDs** - Worktree info (paths, ports) appears only when the user is inside a worktree
+- **PRD creation is simple by default** - The worktree option only surfaces when another PRD is already running
+- **Picker shows PRDs** - Worktree path context shown only for PRDs that live in a separate worktree
+- **Environment control via hotkeys** - `[E]` and `[A]` only appear in the footer when inside a worktree
 
 ### TUI Flow Diagrams
 
 #### Flow 1: New PRD with Worktree (from Dashboard)
+
+The worktree option is **only shown when another PRD is already running**, since
+worktrees exist to support parallel work. When no other PRD is active, the new
+PRD flow skips the worktree question entirely and creates in the current directory.
+
+**When no other PRD is running (simple flow):**
+
+```
+┌─ New PRD ───────────────────────────────────────────────────────────┐
+│                                                                     │
+│  What would you like to build?                                      │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ Add user authentication with OAuth support                   │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  Enter: Create    Esc: Cancel                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**When another PRD is already running (worktree option appears):**
 
 ```
 ┌─ Dashboard ─────────────────────────────────────────────────────────┐
@@ -199,7 +221,7 @@ management is woven into the existing TUI patterns:
 │                                                                     │
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
-│  [N] New PRD    [S] Start/Stop    [L] Logs    [E] Env    [?] Help  │
+│  [N] New PRD    [S] Start/Stop    [L] Logs    [?] Help             │
 └─────────────────────────────────────────────────────────────────────┘
 
 User presses [N]
@@ -213,10 +235,10 @@ User presses [N]
 │  │ Add user authentication with OAuth support                   │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
-│  Create in dedicated worktree?                                      │
+│  Another PRD is currently running. Use a dedicated worktree?        │
 │                                                                     │
-│    ● Yes - Isolated branch & environment (recommended)              │
 │    ○ No  - Use current directory                                    │
+│    ○ Yes - Isolated branch & environment                            │
 │                                                                     │
 │  Worktree location:                                                 │
 │    ../my-project-add-user-auth                                      │
@@ -245,7 +267,7 @@ User presses Enter
         ↓ (spawns new terminal in worktree, runs `chief`)
 
 ┌─ Dashboard ─────────────────────────────────────────────────────────┐
-│  ~/my-project-add-user-auth                    Ports: 3100 5532    │
+│  ~/my-project-add-user-auth                                         │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  PRDs                                                               │
@@ -255,7 +277,7 @@ User presses Enter
 │  Environment: Stopped                                               │
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
-│  [S] Start    [E] Start Env    [L] Logs    [?] Help                │
+│  [S] Start    [E] Start Env    [A] All    [L] Logs    [?] Help     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -337,8 +359,12 @@ directly into the dashboard:
 │  └────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
-│  [S] Stop   [P] Pause   [E] Env   [L] Logs   [A] All   [?] Help   │
+│  [S] Stop   [P] Pause   [L] Logs   [E] Env   [A] All   [?] Help   │
 └─────────────────────────────────────────────────────────────────────┘
+
+Note: The `[E] Env` and `[A] All` hotkeys only appear in the footer when the
+user is inside a worktree. In the standard (non-worktree) dashboard, the
+footer shows only: `[S] Stop   [P] Pause   [L] Logs   [?] Help`
 
 User presses [E]
         ↓
@@ -369,37 +395,36 @@ User presses [E]
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-#### Flow 4: Worktree Picker (Enhanced PRD Picker)
+#### Flow 4: PRD Picker (with optional worktree context)
 
-The existing PRD picker becomes worktree-aware. Accessed via Tab or when
-multiple worktrees exist:
+The PRD picker remains PRD-focused. When a PRD lives in a worktree, a subtle
+path indicator is shown — but the picker is not a worktree management interface.
 
 ```
-┌─ Select Worktree ───────────────────────────────────────────────────┐
+┌─ Select PRD ────────────────────────────────────────────────────────┐
 │                                                                     │
 │  > ┌──────────────────────────────────────────────────────────────┐│
-│    │ ● feature-a        ▶ Running                                 ││
-│    │   add-user-auth    ███████████░░░  73%        Ports: 3100   ││
+│    │ ● add-user-auth    ███████████░░░  73%          ▶ Running    ││
+│    │   ../my-project-add-user-auth                               ││
 │    └──────────────────────────────────────────────────────────────┘│
 │                                                                     │
 │    ┌──────────────────────────────────────────────────────────────┐│
-│    │ ◐ feature-b        ⏸ Paused                                  ││
-│    │   fix-payments     █████░░░░░░░░░  36%        Ports: 3200   ││
+│    │ ◐ fix-payments     █████░░░░░░░░░  36%          ⏸ Paused     ││
+│    │   ../my-project-fix-payments                                ││
 │    └──────────────────────────────────────────────────────────────┘│
 │                                                                     │
 │    ┌──────────────────────────────────────────────────────────────┐│
-│    │ ○ main             Stopped                                   ││
-│    │   (no active PRD)                                            ││
-│    └──────────────────────────────────────────────────────────────┘│
-│                                                                     │
-│    ┌──────────────────────────────────────────────────────────────┐│
-│    │ + Create new worktree...                                     ││
+│    │ + Create new PRD...                                          ││
 │    └──────────────────────────────────────────────────────────────┘│
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
-│  ↑/↓ Navigate   Enter: Open in terminal   Del: Remove   Esc: Back │
+│  ↑/↓ Navigate   Enter: Open   n: New   Esc: Back                  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+The worktree path line (e.g., `../my-project-add-user-auth`) only appears for
+PRDs that live in a separate worktree. PRDs in the current directory show no
+path line.
 
 ### Hotkey Reference
 
@@ -408,7 +433,7 @@ multiple worktrees exist:
 | `N` | Dashboard | New PRD (with worktree option) |
 | `A` | Dashboard | Show all worktrees (coordinator mode) |
 | `E` | Dashboard | Environment control panel |
-| `Tab` | Dashboard | Worktree picker |
+| `Tab` | Dashboard | PRD picker |
 | `S` | Dashboard | Start/Stop Ralph loop |
 | `P` | Dashboard | Pause Ralph loop |
 | `L` | Dashboard | View full log |
@@ -869,7 +894,11 @@ type EnvironmentManager interface {
 
 ## Appendix: User Journeys
 
-### Journey 1: First-Time Worktree User (All in TUI)
+### Journey 1: First-Time User (Simple Flow, No Worktrees)
+
+First-time users see a clean, simple flow with no mention of worktrees.
+Worktrees are only surfaced when the user is working on multiple PRDs
+in parallel.
 
 ```
 User runs: chief
@@ -891,13 +920,6 @@ User presses [N]
 │  │ Add user authentication with OAuth support_                  │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ ● Create in dedicated worktree (isolated branch & env)      │   │
-│  │ ○ Use current directory                                     │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  Location: ../my-project-add-user-auth                             │
-│                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 
 User presses Enter
@@ -905,25 +927,18 @@ User presses Enter
 ┌─ Creating ──────────────────────────────────────────────────────────┐
 │                                                                     │
 │  ✓ Generated PRD: 7 user stories                                   │
-│  ✓ Created branch: feature/add-user-auth                           │
-│  ✓ Created worktree: ../my-project-add-user-auth                   │
-│  ✓ Detected: docker-compose.yml                                    │
-│  ✓ Allocated ports: app→3100, postgres→5532, redis→6479           │
 │                                                                     │
-│  Opening new terminal...                                            │
+│  Ready!                                                             │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 
-(New terminal opens in worktree with Chief running)
-
 ┌─ Dashboard ─────────────────────────────────────────────────────────┐
-│  ~/my-project-add-user-auth                    Ports: 3100 5532    │
+│  ~/my-project                                                       │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  add-user-auth       ░░░░░░░░░░░░░░░   0% (0/7)          Ready     │
 │                                                                     │
-│  Environment: Stopped                                               │
-│  Press [E] to start, or [S] to start loop (will auto-start env)   │
+│  Press [S] to start the loop                                       │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -963,21 +978,20 @@ User presses [A] for "All Worktrees"
 ```
 User is in feature-a worktree, presses Tab
 
-┌─ Switch Worktree ───────────────────────────────────────────────────┐
+┌─ Select PRD ────────────────────────────────────────────────────────┐
 │                                                                     │
-│    main              (no PRD)                         Stopped      │
-│  > feature-a ●       add-user-auth      55%          Running       │
-│    feature-b ◐       fix-payments       90%          Paused        │
-│    + New worktree...                                               │
+│  > add-user-auth ●   ███████░░░░░  55%               Running       │
+│    fix-payments  ◐   ████████████░  90%               Paused        │
+│    + New PRD...                                                     │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 
-User selects feature-b, presses Enter
+User selects fix-payments, presses Enter
 
 (New terminal spawns OR existing terminal is focused)
 
 ┌─ Dashboard ─────────────────────────────────────────────────────────┐
-│  ~/my-project-fix-payments                     Ports: 3200 5632    │
+│  ~/my-project-fix-payments                                          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  fix-payments        ████████████░░░  90% (9/10)      ⏸ Paused     │
@@ -991,6 +1005,9 @@ User selects feature-b, presses Enter
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+Note: Port info (`Ports: 3200 5632`) only appears in the dashboard header
+when the environment is actively running. When stopped, just the path is shown.
 
 ### Journey 4: Environment Troubleshooting
 
