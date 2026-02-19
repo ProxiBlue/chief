@@ -1,16 +1,12 @@
 package tui
 
 import (
-	"bytes"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/minicodemonkey/chief/embed"
 	"github.com/minicodemonkey/chief/internal/git"
 )
 
@@ -21,12 +17,6 @@ type ghCheckResultMsg struct {
 	err           error
 }
 
-// detectSetupResultMsg is sent when Claude finishes detecting setup commands.
-type detectSetupResultMsg struct {
-	command string
-	err     error
-}
-
 // FirstTimeSetupResult contains the result of the first-time setup flow.
 type FirstTimeSetupResult struct {
 	PRDName            string
@@ -34,7 +24,6 @@ type FirstTimeSetupResult struct {
 	Cancelled          bool
 	PushOnComplete     bool
 	CreatePROnComplete bool
-	WorktreeSetup      string
 }
 
 // FirstTimeSetupStep represents the current step in the setup flow.
@@ -45,9 +34,6 @@ const (
 	StepPRDName
 	StepPostCompletion
 	StepGHError
-	StepWorktreeSetup
-	StepDetecting
-	StepDetectResult
 )
 
 // FirstTimeSetup is a TUI for first-time project setup.
@@ -73,16 +59,6 @@ type FirstTimeSetup struct {
 	// GH CLI error step
 	ghErrorMsg      string
 	ghErrorSelected int // 0 = Continue without PR, 1 = Try again
-
-	// Worktree setup step
-	worktreeSetupSelected int // 0 = Let Claude figure it out, 1 = Enter manually, 2 = Skip
-	worktreeSetupInput    string
-	worktreeSetupEditing  bool // true when editing the manual input or detected result
-
-	// Detect result step
-	detectedCommand       string
-	detectResultSelected  int // 0 = Use this command, 1 = Edit, 2 = Skip
-	detectSpinnerFrame    int
 
 	// Result
 	result FirstTimeSetupResult
@@ -123,16 +99,6 @@ func (f FirstTimeSetup) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ghCheckResultMsg:
 		return f.handleGHCheckResult(msg)
 
-	case detectSetupResultMsg:
-		return f.handleDetectSetupResult(msg)
-
-	case spinnerTickMsg:
-		if f.step == StepDetecting {
-			f.detectSpinnerFrame++
-			return f, tickSpinner()
-		}
-		return f, nil
-
 	case tea.KeyMsg:
 		switch f.step {
 		case StepGitignore:
@@ -143,22 +109,9 @@ func (f FirstTimeSetup) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return f.handlePostCompletionKeys(msg)
 		case StepGHError:
 			return f.handleGHErrorKeys(msg)
-		case StepWorktreeSetup:
-			return f.handleWorktreeSetupKeys(msg)
-		case StepDetectResult:
-			return f.handleDetectResultKeys(msg)
 		}
 	}
 	return f, nil
-}
-
-// spinnerTickMsg is sent to animate the spinner.
-type spinnerTickMsg struct{}
-
-func tickSpinner() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
-		return spinnerTickMsg{}
-	})
 }
 
 func (f FirstTimeSetup) handleGitignoreKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -350,8 +303,7 @@ func (f FirstTimeSetup) confirmPostCompletion() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	f.step = StepWorktreeSetup
-	return f, nil
+	return f, tea.Quit
 }
 
 func (f FirstTimeSetup) handleGHCheckResult(msg ghCheckResultMsg) (tea.Model, tea.Cmd) {
@@ -376,9 +328,8 @@ func (f FirstTimeSetup) handleGHCheckResult(msg ghCheckResultMsg) (tea.Model, te
 		return f, nil
 	}
 
-	// gh is installed and authenticated - proceed to worktree setup
-	f.step = StepWorktreeSetup
-	return f, nil
+	// gh is installed and authenticated - done
+	return f, tea.Quit
 }
 
 func (f FirstTimeSetup) handleGHErrorKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -408,214 +359,13 @@ func (f FirstTimeSetup) handleGHErrorKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if f.ghErrorSelected == 0 {
 			// Continue without PR creation
 			f.result.CreatePROnComplete = false
-			f.step = StepWorktreeSetup
-			return f, nil
+			return f, tea.Quit
 		}
 		// Try again
 		return f, func() tea.Msg {
 			installed, authenticated, err := git.CheckGHCLI()
 			return ghCheckResultMsg{installed: installed, authenticated: authenticated, err: err}
 		}
-	}
-	return f, nil
-}
-
-func (f FirstTimeSetup) handleWorktreeSetupKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if f.worktreeSetupEditing {
-		return f.handleWorktreeSetupInputKeys(msg)
-	}
-
-	switch msg.String() {
-	case "ctrl+c":
-		f.result.Cancelled = true
-		return f, tea.Quit
-
-	case "esc":
-		// Go back to post-completion step
-		f.step = StepPostCompletion
-		return f, nil
-
-	case "up", "k":
-		if f.worktreeSetupSelected > 0 {
-			f.worktreeSetupSelected--
-		}
-		return f, nil
-
-	case "down", "j":
-		if f.worktreeSetupSelected < 2 {
-			f.worktreeSetupSelected++
-		}
-		return f, nil
-
-	case "enter":
-		return f.confirmWorktreeSetup()
-	}
-	return f, nil
-}
-
-func (f FirstTimeSetup) handleWorktreeSetupInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c":
-		f.result.Cancelled = true
-		return f, tea.Quit
-
-	case "esc":
-		// Cancel editing, go back to options
-		f.worktreeSetupEditing = false
-		f.worktreeSetupInput = ""
-		return f, nil
-
-	case "enter":
-		cmd := strings.TrimSpace(f.worktreeSetupInput)
-		if cmd != "" {
-			f.result.WorktreeSetup = cmd
-		}
-		return f, tea.Quit
-
-	case "backspace":
-		if len(f.worktreeSetupInput) > 0 {
-			f.worktreeSetupInput = f.worktreeSetupInput[:len(f.worktreeSetupInput)-1]
-		}
-		return f, nil
-
-	default:
-		if len(msg.String()) == 1 {
-			f.worktreeSetupInput += msg.String()
-		}
-		return f, nil
-	}
-}
-
-func (f FirstTimeSetup) confirmWorktreeSetup() (tea.Model, tea.Cmd) {
-	switch f.worktreeSetupSelected {
-	case 0:
-		// Let Claude figure it out
-		f.step = StepDetecting
-		f.detectSpinnerFrame = 0
-		return f, tea.Batch(f.runDetectSetup(), tickSpinner())
-	case 1:
-		// Enter manually
-		f.worktreeSetupEditing = true
-		f.worktreeSetupInput = ""
-		return f, nil
-	case 2:
-		// Skip
-		return f, tea.Quit
-	}
-	return f, nil
-}
-
-func (f FirstTimeSetup) runDetectSetup() tea.Cmd {
-	return func() tea.Msg {
-		prompt := embed.GetDetectSetupPrompt()
-		cmd := exec.Command("claude", "-p", prompt, "--output-format", "text")
-		cmd.Dir = f.baseDir
-
-		var stdout bytes.Buffer
-		cmd.Stdout = &stdout
-
-		err := cmd.Run()
-		if err != nil {
-			return detectSetupResultMsg{err: fmt.Errorf("Claude detection failed: %w", err)}
-		}
-
-		result := strings.TrimSpace(stdout.String())
-		return detectSetupResultMsg{command: result}
-	}
-}
-
-func (f FirstTimeSetup) handleDetectSetupResult(msg detectSetupResultMsg) (tea.Model, tea.Cmd) {
-	if msg.err != nil {
-		// Detection failed, go to worktree setup step so user can enter manually or skip
-		f.step = StepWorktreeSetup
-		return f, nil
-	}
-
-	f.detectedCommand = msg.command
-	f.detectResultSelected = 0
-	f.step = StepDetectResult
-	return f, nil
-}
-
-func (f FirstTimeSetup) handleDetectResultKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if f.worktreeSetupEditing {
-		return f.handleDetectResultEditKeys(msg)
-	}
-
-	switch msg.String() {
-	case "ctrl+c":
-		f.result.Cancelled = true
-		return f, tea.Quit
-
-	case "esc":
-		// Go back to worktree setup options
-		f.step = StepWorktreeSetup
-		return f, nil
-
-	case "up", "k":
-		if f.detectResultSelected > 0 {
-			f.detectResultSelected--
-		}
-		return f, nil
-
-	case "down", "j":
-		if f.detectResultSelected < 2 {
-			f.detectResultSelected++
-		}
-		return f, nil
-
-	case "enter":
-		return f.confirmDetectResult()
-	}
-	return f, nil
-}
-
-func (f FirstTimeSetup) handleDetectResultEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c":
-		f.result.Cancelled = true
-		return f, tea.Quit
-
-	case "esc":
-		// Cancel editing, go back to options
-		f.worktreeSetupEditing = false
-		return f, nil
-
-	case "enter":
-		cmd := strings.TrimSpace(f.worktreeSetupInput)
-		if cmd != "" {
-			f.result.WorktreeSetup = cmd
-		}
-		return f, tea.Quit
-
-	case "backspace":
-		if len(f.worktreeSetupInput) > 0 {
-			f.worktreeSetupInput = f.worktreeSetupInput[:len(f.worktreeSetupInput)-1]
-		}
-		return f, nil
-
-	default:
-		if len(msg.String()) == 1 {
-			f.worktreeSetupInput += msg.String()
-		}
-		return f, nil
-	}
-}
-
-func (f FirstTimeSetup) confirmDetectResult() (tea.Model, tea.Cmd) {
-	switch f.detectResultSelected {
-	case 0:
-		// Use this command
-		f.result.WorktreeSetup = f.detectedCommand
-		return f, tea.Quit
-	case 1:
-		// Edit
-		f.worktreeSetupEditing = true
-		f.worktreeSetupInput = f.detectedCommand
-		return f, nil
-	case 2:
-		// Skip
-		return f, tea.Quit
 	}
 	return f, nil
 }
@@ -631,12 +381,6 @@ func (f FirstTimeSetup) View() string {
 		return f.renderPostCompletionStep()
 	case StepGHError:
 		return f.renderGHErrorStep()
-	case StepWorktreeSetup:
-		return f.renderWorktreeSetupStep()
-	case StepDetecting:
-		return f.renderDetectingStep()
-	case StepDetectResult:
-		return f.renderDetectResultStep()
 	default:
 		return ""
 	}
@@ -962,267 +706,6 @@ func (f FirstTimeSetup) renderGHErrorStep() string {
 	modalStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ErrorColor).
-		Padding(1, 2).
-		Width(modalWidth)
-
-	modal := modalStyle.Render(content.String())
-
-	return f.centerModal(modal)
-}
-
-func (f FirstTimeSetup) renderWorktreeSetupStep() string {
-	modalWidth := min(65, f.width-10)
-	if modalWidth < 45 {
-		modalWidth = 45
-	}
-
-	var content strings.Builder
-
-	// Success indicators for previous steps
-	successStyle := lipgloss.NewStyle().Foreground(SuccessColor)
-	if f.result.AddedGitignore {
-		content.WriteString(successStyle.Render("✓ Added .chief to .gitignore"))
-		content.WriteString("\n")
-	}
-	content.WriteString(successStyle.Render(fmt.Sprintf("✓ PRD: %s", f.result.PRDName)))
-	content.WriteString("\n")
-	content.WriteString(successStyle.Render("✓ Post-completion configured"))
-	content.WriteString("\n\n")
-
-	// Title
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(PrimaryColor)
-	content.WriteString(titleStyle.Render("Worktree Setup Command"))
-	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
-	content.WriteString("\n\n")
-
-	// Description
-	descStyle := lipgloss.NewStyle().Foreground(MutedColor)
-	content.WriteString(descStyle.Render("When creating a worktree, Chief can run a setup command"))
-	content.WriteString("\n")
-	content.WriteString(descStyle.Render("to install dependencies (e.g., npm install, go mod download)."))
-	content.WriteString("\n\n")
-
-	if f.worktreeSetupEditing {
-		// Show inline text input
-		messageStyle := lipgloss.NewStyle().Foreground(TextColor)
-		content.WriteString(messageStyle.Render("Enter setup command:"))
-		content.WriteString("\n\n")
-
-		inputStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(PrimaryColor).
-			Padding(0, 1).
-			Width(modalWidth - 8)
-
-		displayInput := f.worktreeSetupInput
-		if displayInput == "" {
-			displayInput = " "
-		}
-		content.WriteString(inputStyle.Render(displayInput + "█"))
-		content.WriteString("\n")
-
-		// Footer
-		content.WriteString("\n")
-		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
-		content.WriteString("\n")
-		footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
-		content.WriteString(footerStyle.Render("Enter: Confirm  Esc: Back"))
-	} else {
-		// Show options
-		optionStyle := lipgloss.NewStyle().Foreground(TextColor)
-		selectedOptionStyle := lipgloss.NewStyle().
-			Foreground(PrimaryColor).
-			Bold(true)
-		recommendedStyle := lipgloss.NewStyle().Foreground(SuccessColor)
-
-		options := []struct {
-			label string
-			desc  string
-		}{
-			{"Let Claude figure it out", "(Recommended)"},
-			{"Enter manually", ""},
-			{"Skip", ""},
-		}
-
-		for i, opt := range options {
-			if i == f.worktreeSetupSelected {
-				content.WriteString(selectedOptionStyle.Render(fmt.Sprintf("▶ %s", opt.label)))
-				if opt.desc != "" {
-					content.WriteString(" " + recommendedStyle.Render(opt.desc))
-				}
-			} else {
-				content.WriteString(optionStyle.Render(fmt.Sprintf("  %s", opt.label)))
-				if opt.desc != "" {
-					content.WriteString(" " + lipgloss.NewStyle().Foreground(MutedColor).Render(opt.desc))
-				}
-			}
-			content.WriteString("\n")
-		}
-
-		// Hint
-		content.WriteString("\n")
-		hintStyle := lipgloss.NewStyle().Foreground(MutedColor)
-		content.WriteString(hintStyle.Render("You can change these later with ,"))
-
-		// Footer
-		content.WriteString("\n\n")
-		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
-		content.WriteString("\n")
-		footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
-		content.WriteString(footerStyle.Render("↑/↓: Navigate  Enter: Select  Esc: Back"))
-	}
-
-	// Modal box
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(PrimaryColor).
-		Padding(1, 2).
-		Width(modalWidth)
-
-	modal := modalStyle.Render(content.String())
-
-	return f.centerModal(modal)
-}
-
-func (f FirstTimeSetup) renderDetectingStep() string {
-	modalWidth := min(65, f.width-10)
-	if modalWidth < 45 {
-		modalWidth = 45
-	}
-
-	var content strings.Builder
-
-	// Title
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(PrimaryColor)
-	content.WriteString(titleStyle.Render("Worktree Setup Command"))
-	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
-	content.WriteString("\n\n")
-
-	// Spinner
-	spinnerFrames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	frame := spinnerFrames[f.detectSpinnerFrame%len(spinnerFrames)]
-	spinnerStyle := lipgloss.NewStyle().Foreground(PrimaryColor)
-	messageStyle := lipgloss.NewStyle().Foreground(TextColor)
-
-	content.WriteString(spinnerStyle.Render(frame))
-	content.WriteString(" ")
-	content.WriteString(messageStyle.Render("Analyzing project for setup commands..."))
-	content.WriteString("\n")
-
-	// Modal box
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(PrimaryColor).
-		Padding(1, 2).
-		Width(modalWidth)
-
-	modal := modalStyle.Render(content.String())
-
-	return f.centerModal(modal)
-}
-
-func (f FirstTimeSetup) renderDetectResultStep() string {
-	modalWidth := min(65, f.width-10)
-	if modalWidth < 45 {
-		modalWidth = 45
-	}
-
-	var content strings.Builder
-
-	// Title
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(PrimaryColor)
-	content.WriteString(titleStyle.Render("Detected Setup Command"))
-	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
-	content.WriteString("\n\n")
-
-	if f.worktreeSetupEditing {
-		// Show inline text input for editing
-		messageStyle := lipgloss.NewStyle().Foreground(TextColor)
-		content.WriteString(messageStyle.Render("Edit setup command:"))
-		content.WriteString("\n\n")
-
-		inputStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(PrimaryColor).
-			Padding(0, 1).
-			Width(modalWidth - 8)
-
-		displayInput := f.worktreeSetupInput
-		if displayInput == "" {
-			displayInput = " "
-		}
-		content.WriteString(inputStyle.Render(displayInput + "█"))
-		content.WriteString("\n")
-
-		// Footer
-		content.WriteString("\n")
-		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
-		content.WriteString("\n")
-		footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
-		content.WriteString(footerStyle.Render("Enter: Confirm  Esc: Back"))
-	} else {
-		// Show detected command
-		commandStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(SuccessColor).
-			Padding(0, 1).
-			Width(modalWidth - 8)
-
-		content.WriteString(commandStyle.Render(f.detectedCommand))
-		content.WriteString("\n\n")
-
-		// Options
-		optionStyle := lipgloss.NewStyle().Foreground(TextColor)
-		selectedOptionStyle := lipgloss.NewStyle().
-			Foreground(PrimaryColor).
-			Bold(true)
-		recommendedStyle := lipgloss.NewStyle().Foreground(SuccessColor)
-
-		options := []struct {
-			label string
-			desc  string
-		}{
-			{"Use this command", "(Recommended)"},
-			{"Edit", ""},
-			{"Skip", ""},
-		}
-
-		for i, opt := range options {
-			if i == f.detectResultSelected {
-				content.WriteString(selectedOptionStyle.Render(fmt.Sprintf("▶ %s", opt.label)))
-				if opt.desc != "" {
-					content.WriteString(" " + recommendedStyle.Render(opt.desc))
-				}
-			} else {
-				content.WriteString(optionStyle.Render(fmt.Sprintf("  %s", opt.label)))
-				if opt.desc != "" {
-					content.WriteString(" " + lipgloss.NewStyle().Foreground(MutedColor).Render(opt.desc))
-				}
-			}
-			content.WriteString("\n")
-		}
-
-		// Footer
-		content.WriteString("\n")
-		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
-		content.WriteString("\n")
-		footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
-		content.WriteString(footerStyle.Render("↑/↓: Navigate  Enter: Select  Esc: Back"))
-	}
-
-	// Modal box
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(PrimaryColor).
 		Padding(1, 2).
 		Width(modalWidth)
 
