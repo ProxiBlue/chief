@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,33 @@ import (
 
 // spinner frames for the loading indicator
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// waitingJokes are shown on a rotating basis during long-running operations.
+var waitingJokes = []string{
+	"Why do programmers prefer dark mode? Because light attracts bugs.",
+	"There are only 10 types of people: those who understand binary and those who don't.",
+	"A SQL query walks into a bar, sees two tables and asks... 'Can I JOIN you?'",
+	"!false — it's funny because it's true.",
+	"A programmer's wife says: 'Go to the store and get a gallon of milk. If they have eggs, get a dozen.' He returns with 12 gallons of milk.",
+	"Why do Java developers wear glasses? Because they can't C#.",
+	"There's no place like 127.0.0.1.",
+	"Algorithm: a word used by programmers when they don't want to explain what they did.",
+	"It works on my machine. Ship it!",
+	"99 little bugs in the code, 99 little bugs. Take one down, patch it around... 127 little bugs in the code.",
+	"The best thing about a boolean is that even if you're wrong, you're only off by a bit.",
+	"Debugging is like being the detective in a crime movie where you are also the murderer.",
+	"How many programmers does it take to change a light bulb? None, that's a hardware problem.",
+	"I asked the AI to write a PRD. It wrote a PRD about writing PRDs.",
+	"You're absolutely right. That's a great point. I completely agree. — Claude, before doing what it was already going to do",
+	"The AI said it was 95% confident. It was not.",
+	"Prompt engineering: the art of saying 'no really, do what I said' in 47 different ways.",
+	"The LLM hallucinated a library that doesn't exist. Honestly, the API looked pretty good though.",
+	"AI will replace programmers any day now. — programmers, every year since 2022",
+	"Homer Simpson: 'To start, press any key.' Where's the ANY key?!",
+	"Homer Simpson: 'Kids, you tried your best and you failed miserably. The lesson is, never try.'",
+	"The code works and nobody knows why. The code breaks and nobody knows why.",
+	"Frink: 'You've got to listen to me! Elementary chaos theory tells us that all robots will eventually turn against their masters!'",
+}
 
 // ConvertOptions contains configuration for PRD conversion.
 type ConvertOptions struct {
@@ -161,7 +189,7 @@ func runClaudeConversion(absPRDDir string) error {
 		return fmt.Errorf("failed to start Claude: %w", err)
 	}
 
-	return waitWithProgress(cmd, stdout, "Converting prd.md to prd.json...", &stderr)
+	return waitWithProgress(cmd, stdout, "Converting PRD using Claude Code (this may take a few minutes)...", &stderr)
 }
 
 // runClaudeJSONFix asks Claude to fix an invalid prd.json file.
@@ -264,14 +292,20 @@ func waitWithProgress(cmd *exec.Cmd, stdout io.ReadCloser, message string, stder
 	ticker := time.NewTicker(80 * time.Millisecond)
 	defer ticker.Stop()
 
-	// Print initial two lines
-	fmt.Printf("\r\033[K%s %s (%s)\n\033[K  → %s", spinnerFrames[0], message, formatElapsed(time.Since(startTime)), currentActivity)
+	// Pick a random starting joke and track rotation
+	jokeIndex := rand.Intn(len(waitingJokes))
+	currentJoke := waitingJokes[jokeIndex]
+	lastJokeChange := time.Now()
+
+	// Print initial three lines
+	fmt.Printf("\r\033[K%s %s (%s)\n\033[K  → %s\n\033[K  💬 %s",
+		spinnerFrames[0], message, formatElapsed(time.Since(startTime)), currentActivity, currentJoke)
 
 	for {
 		select {
 		case err := <-done:
-			// Clear both lines: move up one line, clear it, clear current line
-			fmt.Print("\r\033[K\033[A\r\033[K")
+			// Clear all three lines: move up 2, clear each line going down
+			fmt.Print("\r\033[K\033[A\r\033[K\033[A\r\033[K")
 			if err != nil {
 				return fmt.Errorf("Claude failed: %s", stderr.String())
 			}
@@ -279,10 +313,18 @@ func waitWithProgress(cmd *exec.Cmd, stdout io.ReadCloser, message string, stder
 		case act := <-activity:
 			currentActivity = act
 		case <-ticker.C:
+			// Rotate joke every 30 seconds
+			if time.Since(lastJokeChange) >= 30*time.Second {
+				jokeIndex = (jokeIndex + 1 + rand.Intn(len(waitingJokes)-1)) % len(waitingJokes)
+				currentJoke = waitingJokes[jokeIndex]
+				lastJokeChange = time.Now()
+			}
+
 			elapsed := formatElapsed(time.Since(startTime))
 			spinner := spinnerFrames[frame%len(spinnerFrames)]
-			// Move up one line, clear and redraw line 1, move down and clear and redraw line 2
-			fmt.Printf("\r\033[A\r\033[K%s %s (%s)\n\r\033[K  → %s", spinner, message, elapsed, currentActivity)
+			// Move up 2 lines, redraw all 3 lines
+			fmt.Printf("\r\033[A\033[A\r\033[K%s %s (%s)\n\r\033[K  → %s\n\r\033[K  💬 %s",
+				spinner, message, elapsed, currentActivity, currentJoke)
 			frame++
 		}
 	}
