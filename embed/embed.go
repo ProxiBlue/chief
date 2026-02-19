@@ -41,9 +41,9 @@ func GetEditPrompt(prdDir string) string {
 	return strings.ReplaceAll(editPromptTemplate, "{{PRD_DIR}}", prdDir)
 }
 
-// GetConvertPrompt returns the PRD converter prompt for prd.md to prd.json conversion.
-func GetConvertPrompt(prdDir string) string {
-	return strings.ReplaceAll(convertPromptTemplate, "{{PRD_DIR}}", prdDir)
+// GetConvertPrompt returns the PRD converter prompt with the PRD content inlined.
+func GetConvertPrompt(prdContent string) string {
+	return strings.ReplaceAll(convertPromptTemplate, "{{PRD_CONTENT}}", prdContent)
 }
 
 // GetDetectSetupPrompt returns the prompt for detecting project setup commands.

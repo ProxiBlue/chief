@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -71,7 +70,7 @@ const (
 )
 
 // Convert converts prd.md to prd.json using Claude one-shot mode.
-// Claude is responsible for writing the prd.json file directly.
+// Claude receives the PRD content inline and returns JSON on stdout.
 // This function is called:
 // - After chief new (new PRD creation)
 // - After chief edit (PRD modification)
@@ -105,21 +104,27 @@ func Convert(opts ConvertOptions) error {
 		hasProgress = HasProgress(existing)
 	}
 
-	// Run Claude to convert prd.md and write prd.json directly
-	if err := runClaudeConversion(absPRDDir); err != nil {
+	// Run Claude to convert prd.md → JSON string
+	rawJSON, err := runClaudeConversion(absPRDDir)
+	if err != nil {
 		return err
 	}
 
-	// Validate that Claude wrote a valid prd.json
-	newPRD, err := loadAndValidateConvertedPRD(prdJsonPath)
+	// Clean up output (strip markdown fences if any)
+	cleanedJSON := cleanJSONOutput(rawJSON)
+
+	// Parse and validate
+	newPRD, err := parseAndValidatePRD(cleanedJSON)
 	if err != nil {
 		// Retry once: ask Claude to fix the invalid JSON
 		fmt.Println("Conversion produced invalid JSON, retrying...")
-		if retryErr := runClaudeJSONFix(absPRDDir, err); retryErr != nil {
+		fixedJSON, retryErr := runClaudeJSONFix(cleanedJSON, err)
+		if retryErr != nil {
 			return fmt.Errorf("conversion retry failed: %w", retryErr)
 		}
 
-		newPRD, err = loadAndValidateConvertedPRD(prdJsonPath)
+		cleanedJSON = cleanJSONOutput(fixedJSON)
+		newPRD, err = parseAndValidatePRD(cleanedJSON)
 		if err != nil {
 			return fmt.Errorf("conversion produced invalid JSON after retry: %w", err)
 		}
@@ -174,63 +179,64 @@ func Convert(opts ConvertOptions) error {
 	return nil
 }
 
-// runClaudeConversion runs Claude one-shot to convert prd.md and write prd.json.
-func runClaudeConversion(absPRDDir string) error {
-	prompt := embed.GetConvertPrompt(absPRDDir)
+// runClaudeConversion reads prd.md, sends content inline to Claude, and returns the JSON output.
+func runClaudeConversion(absPRDDir string) (string, error) {
+	content, err := os.ReadFile(filepath.Join(absPRDDir, "prd.md"))
+	if err != nil {
+		return "", fmt.Errorf("failed to read prd.md: %w", err)
+	}
 
-	cmd := exec.Command("claude",
-		"--dangerously-skip-permissions",
-		"--output-format", "stream-json",
-		"--verbose",
-		"-p", prompt,
-	)
+	prompt := embed.GetConvertPrompt(string(content))
+
+	cmd := exec.Command("claude", "-p", prompt)
 	cmd.Dir = absPRDDir
 
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start Claude: %w", err)
+		return "", fmt.Errorf("failed to start Claude: %w", err)
 	}
 
-	return waitWithProgress(cmd, stdout, "Converting PRD", &stderr)
+	if err := waitWithPanel(cmd, "Converting PRD", "Analyzing PRD...", &stderr); err != nil {
+		return "", err
+	}
+
+	return stdout.String(), nil
 }
 
-// runClaudeJSONFix asks Claude to fix an invalid prd.json file.
-func runClaudeJSONFix(absPRDDir string, validationErr error) error {
+// runClaudeJSONFix asks Claude to fix invalid JSON inline and returns the corrected output.
+func runClaudeJSONFix(badJSON string, validationErr error) (string, error) {
 	fixPrompt := fmt.Sprintf(
-		"The file at %s/prd.json contains invalid JSON. The error is: %s\n\n"+
-			"Read the file, fix the JSON (pay special attention to escaping double quotes inside string values with backslashes), "+
-			"and write the corrected JSON back to %s/prd.json.",
-		absPRDDir, validationErr.Error(), absPRDDir,
+		"The following JSON is invalid. The error is: %s\n\n"+
+			"Fix the JSON (pay special attention to escaping double quotes inside string values with backslashes) "+
+			"and return ONLY the corrected JSON — no markdown fences, no explanation.\n\n%s",
+		validationErr.Error(), badJSON,
 	)
 
-	cmd := exec.Command("claude",
-		"--dangerously-skip-permissions",
-		"-p", fixPrompt,
-	)
-	cmd.Dir = absPRDDir
+	cmd := exec.Command("claude", "-p", fixPrompt)
 
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start Claude: %w", err)
+		return "", fmt.Errorf("failed to start Claude: %w", err)
 	}
 
-	return waitWithSpinner(cmd, "Fixing JSON", "Fixing prd.json...", &stderr)
+	if err := waitWithSpinner(cmd, "Fixing JSON", "Fixing prd.json...", &stderr); err != nil {
+		return "", err
+	}
+
+	return stdout.String(), nil
 }
 
-// loadAndValidateConvertedPRD loads prd.json and validates it can be parsed as a PRD.
-func loadAndValidateConvertedPRD(prdJsonPath string) (*PRD, error) {
-	prd, err := LoadPRD(prdJsonPath)
-	if err != nil {
-		return nil, err
+// parseAndValidatePRD unmarshals a JSON string and validates it as a PRD.
+func parseAndValidatePRD(jsonStr string) (*PRD, error) {
+	var prd PRD
+	if err := json.Unmarshal([]byte(jsonStr), &prd); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 	if prd.Project == "" {
 		return nil, fmt.Errorf("prd.json missing required 'project' field")
@@ -238,7 +244,16 @@ func loadAndValidateConvertedPRD(prdJsonPath string) (*PRD, error) {
 	if len(prd.UserStories) == 0 {
 		return nil, fmt.Errorf("prd.json has no user stories")
 	}
-	return prd, nil
+	return &prd, nil
+}
+
+// loadAndValidateConvertedPRD loads prd.json from disk and validates it can be parsed as a PRD.
+func loadAndValidateConvertedPRD(prdJsonPath string) (*PRD, error) {
+	data, err := os.ReadFile(prdJsonPath)
+	if err != nil {
+		return nil, err
+	}
+	return parseAndValidatePRD(string(data))
 }
 
 // getTerminalWidth returns the current terminal width, defaulting to 80.
@@ -270,10 +285,10 @@ func wrapText(text string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderProgressBar renders a progress bar based on elapsed time vs a 4-minute estimate.
+// renderProgressBar renders a progress bar based on elapsed time vs estimated duration.
 // Caps at 95% to avoid showing 100% prematurely.
 func renderProgressBar(elapsed time.Duration, width int) string {
-	const estimatedDuration = 4 * time.Minute
+	const estimatedDuration = 90 * time.Second
 
 	progress := elapsed.Seconds() / estimatedDuration.Seconds()
 	if progress > 0.95 {
@@ -481,36 +496,16 @@ func waitWithSpinner(cmd *exec.Cmd, title, message string, stderr *bytes.Buffer)
 	}
 }
 
-// waitWithProgress runs a styled progress panel while waiting for a streaming command to finish.
-// It parses Claude's stream-json output to show real-time activity (tool usage, thinking).
-func waitWithProgress(cmd *exec.Cmd, stdout io.ReadCloser, title string, stderr *bytes.Buffer) error {
+// waitWithPanel runs a full progress panel (header, activity, progress bar, jokes)
+// while waiting for a command to finish. Unlike waitWithProgress, it does not parse
+// stdout — activity text is static.
+func waitWithPanel(cmd *exec.Cmd, title, activity string, stderr *bytes.Buffer) error {
 	done := make(chan error, 1)
-	activity := make(chan string, 10)
-
-	// Read stdout in a goroutine, parse stream-json events
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
-			tool, input, text := parseStreamLine(line)
-			if tool != "" {
-				activity <- describeToolActivity(tool, input)
-			} else if text != "" {
-				activity <- "Analyzing PRD..."
-			}
-		}
-	}()
-
 	go func() {
 		done <- cmd.Wait()
 	}()
 
 	startTime := time.Now()
-	currentActivity := "Starting..."
 	ticker := time.NewTicker(80 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -535,8 +530,6 @@ func waitWithProgress(cmd *exec.Cmd, stdout io.ReadCloser, title string, stderr 
 				return fmt.Errorf("Claude failed: %s", stderr.String())
 			}
 			return nil
-		case act := <-activity:
-			currentActivity = act
 		case <-ticker.C:
 			// Rotate joke every 30 seconds
 			if time.Since(lastJokeChange) >= 30*time.Second {
@@ -545,76 +538,10 @@ func waitWithProgress(cmd *exec.Cmd, stdout io.ReadCloser, title string, stderr 
 				lastJokeChange = time.Now()
 			}
 
-			box := renderProgressBox(title, currentActivity, time.Since(startTime), currentJoke, panelWidth)
+			box := renderProgressBox(title, activity, time.Since(startTime), currentJoke, panelWidth)
 			prevLines = repaintBox(box, prevLines)
 		}
 	}
-}
-
-// describeToolActivity returns a human-readable description of a tool invocation.
-func describeToolActivity(tool string, input map[string]interface{}) string {
-	switch tool {
-	case "Read":
-		if path, ok := input["file_path"].(string); ok {
-			return "Reading " + filepath.Base(path)
-		}
-		return "Reading file"
-	case "Write":
-		if path, ok := input["file_path"].(string); ok {
-			return "Writing " + filepath.Base(path)
-		}
-		return "Writing file"
-	case "Edit":
-		if path, ok := input["file_path"].(string); ok {
-			return "Editing " + filepath.Base(path)
-		}
-		return "Editing file"
-	case "Glob":
-		return "Searching files"
-	case "Grep":
-		return "Searching content"
-	default:
-		return "Running " + tool
-	}
-}
-
-// parseStreamLine extracts tool info or assistant text from a stream-json line.
-// Returns (toolName, toolInput, assistantText). At most one will be non-zero.
-func parseStreamLine(line string) (string, map[string]interface{}, string) {
-	var msg struct {
-		Type    string          `json:"type"`
-		Message json.RawMessage `json:"message,omitempty"`
-	}
-	if err := json.Unmarshal([]byte(line), &msg); err != nil {
-		return "", nil, ""
-	}
-	if msg.Type != "assistant" || msg.Message == nil {
-		return "", nil, ""
-	}
-
-	var assistant struct {
-		Content []struct {
-			Type  string                 `json:"type"`
-			Text  string                 `json:"text,omitempty"`
-			Name  string                 `json:"name,omitempty"`
-			Input map[string]interface{} `json:"input,omitempty"`
-		} `json:"content"`
-	}
-	if err := json.Unmarshal(msg.Message, &assistant); err != nil {
-		return "", nil, ""
-	}
-
-	for _, block := range assistant.Content {
-		switch block.Type {
-		case "tool_use":
-			return block.Name, block.Input, ""
-		case "text":
-			if text := strings.TrimSpace(block.Text); text != "" {
-				return "", nil, text
-			}
-		}
-	}
-	return "", nil, ""
 }
 
 // formatElapsed formats a duration as a human-readable elapsed time string.

@@ -1,8 +1,12 @@
 You are a PRD converter. Your task is to convert a Product Requirements Document (PRD) written in Markdown to a structured JSON format.
 
-Read the prd.md file at `{{PRD_DIR}}/prd.md` and write the resulting JSON to `{{PRD_DIR}}/prd.json`.
+Here is the PRD content:
 
-The JSON must follow this exact structure:
+<prd>
+{{PRD_CONTENT}}
+</prd>
+
+Return ONLY valid JSON — no markdown fences, no explanation, no commentary. The JSON must follow this exact structure:
 
 {
   "project": "Project Name",
@@ -38,5 +42,3 @@ Rules:
    - RIGHT: "description": "Click the \"Submit\" button"
    This applies to ALL string fields: title, description, and every entry in acceptanceCriteria.
 6. Ensure the JSON is valid and properly formatted with 2-space indentation
-
-Read the prd.md file and write the JSON to `{{PRD_DIR}}/prd.json` now.
