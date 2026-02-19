@@ -2,6 +2,17 @@
 
 All notable changes to Chief are documented in this file.
 
+## [0.5.1] - 2026-02-19
+
+### Features
+- Diff view now shows the commit for the selected user story instead of the entire branch diff
+- Add `PgUp`/`PgDn` key bindings for page scrolling in log and diff views
+- Diff header shows which story's commit is being viewed
+
+### Bug Fixes
+- Fix stale `GetConvertPrompt` test after inline content refactor
+- Diff view now uses the correct worktree directory for PRDs with worktrees
+
 ## [0.5.0] - 2026-02-19
 
 ### Features
@@ -75,6 +86,7 @@ Initial release.
 - CLI commands: `chief new`, `chief edit`, `chief status`, `chief list`
 - Homebrew formula and install script
 
+[0.5.1]: https://github.com/MiniCodeMonkey/chief/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/MiniCodeMonkey/chief/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MiniCodeMonkey/chief/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/MiniCodeMonkey/chief/compare/v0.3.0...v0.3.1
