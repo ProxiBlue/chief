@@ -13,11 +13,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/term"
 	"github.com/minicodemonkey/chief/embed"
 )
 
-// spinner frames for the loading indicator
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+// Colors duplicated from tui/styles.go to avoid import cycle (tui → git → prd).
+var (
+	cPrimary = lipgloss.Color("#00D7FF")
+	cSuccess = lipgloss.Color("#5AF78E")
+	cMuted   = lipgloss.Color("#6C7086")
+	cBorder  = lipgloss.Color("#45475A")
+	cText    = lipgloss.Color("#CDD6F4")
+)
 
 // waitingJokes are shown on a rotating basis during long-running operations.
 var waitingJokes = []string{
@@ -162,6 +170,7 @@ func Convert(opts ConvertOptions) error {
 		return fmt.Errorf("failed to write prd.json: %w", err)
 	}
 
+	fmt.Println(lipgloss.NewStyle().Foreground(cSuccess).Render("✓ PRD converted successfully"))
 	return nil
 }
 
@@ -189,7 +198,7 @@ func runClaudeConversion(absPRDDir string) error {
 		return fmt.Errorf("failed to start Claude: %w", err)
 	}
 
-	return waitWithProgress(cmd, stdout, "Converting PRD using Claude Code (this may take a few minutes)...", &stderr)
+	return waitWithProgress(cmd, stdout, "Converting PRD", &stderr)
 }
 
 // runClaudeJSONFix asks Claude to fix an invalid prd.json file.
@@ -214,7 +223,7 @@ func runClaudeJSONFix(absPRDDir string, validationErr error) error {
 		return fmt.Errorf("failed to start Claude: %w", err)
 	}
 
-	return waitWithSpinner(cmd, "Fixing prd.json...", &stderr)
+	return waitWithSpinner(cmd, "Fixing JSON", "Fixing prd.json...", &stderr)
 }
 
 // loadAndValidateConvertedPRD loads prd.json and validates it can be parsed as a PRD.
@@ -232,35 +241,249 @@ func loadAndValidateConvertedPRD(prdJsonPath string) (*PRD, error) {
 	return prd, nil
 }
 
-// waitWithSpinner runs a spinner while waiting for a command to finish.
-func waitWithSpinner(cmd *exec.Cmd, message string, stderr *bytes.Buffer) error {
+// getTerminalWidth returns the current terminal width, defaulting to 80.
+func getTerminalWidth() int {
+	w, _, err := term.GetSize(os.Stdout.Fd())
+	if err != nil || w <= 0 {
+		return 80
+	}
+	return w
+}
+
+// wrapText wraps text to the given width at word boundaries.
+func wrapText(text string, width int) string {
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return ""
+	}
+	var lines []string
+	line := words[0]
+	for _, w := range words[1:] {
+		if len(line)+1+len(w) <= width {
+			line += " " + w
+		} else {
+			lines = append(lines, line)
+			line = w
+		}
+	}
+	lines = append(lines, line)
+	return strings.Join(lines, "\n")
+}
+
+// renderProgressBar renders a progress bar based on elapsed time vs a 4-minute estimate.
+// Caps at 95% to avoid showing 100% prematurely.
+func renderProgressBar(elapsed time.Duration, width int) string {
+	const estimatedDuration = 4 * time.Minute
+
+	progress := elapsed.Seconds() / estimatedDuration.Seconds()
+	if progress > 0.95 {
+		progress = 0.95
+	}
+	if progress < 0 {
+		progress = 0
+	}
+
+	pct := int(progress * 100)
+	pctStr := fmt.Sprintf("%d%%", pct)
+
+	barWidth := width - len(pctStr) - 2 // 2 for gap between bar and percentage
+	if barWidth < 10 {
+		barWidth = 10
+	}
+
+	fillWidth := int(float64(barWidth) * progress)
+	emptyWidth := barWidth - fillWidth
+
+	fill := lipgloss.NewStyle().Foreground(cSuccess).Render(strings.Repeat("█", fillWidth))
+	empty := lipgloss.NewStyle().Foreground(cMuted).Render(strings.Repeat("░", emptyWidth))
+	styledPct := lipgloss.NewStyle().Foreground(cMuted).Render(pctStr)
+
+	return fill + empty + "  " + styledPct
+}
+
+// renderActivityLine renders a line with a cyan dot, activity text, and right-aligned elapsed time.
+func renderActivityLine(activity string, elapsed time.Duration, contentWidth int) string {
+	icon := lipgloss.NewStyle().Foreground(cPrimary).Render("●")
+	elapsedFmt := formatElapsed(elapsed)
+	elapsedStr := lipgloss.NewStyle().Foreground(cMuted).Render(elapsedFmt)
+
+	// Truncate activity if it would overflow
+	maxDescWidth := contentWidth - 2 - len(elapsedFmt) - 2 // icon+space, elapsed, gap
+	if len(activity) > maxDescWidth && maxDescWidth > 3 {
+		activity = activity[:maxDescWidth-1] + "…"
+	}
+
+	descStr := lipgloss.NewStyle().Foreground(cText).Render(activity)
+	leftPart := icon + " " + descStr
+	rightPart := elapsedStr
+	gap := contentWidth - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
+	if gap < 1 {
+		gap = 1
+	}
+	return leftPart + strings.Repeat(" ", gap) + rightPart
+}
+
+// renderProgressBox builds the full lipgloss-styled progress panel with progress bar and joke.
+func renderProgressBox(title, activity string, elapsed time.Duration, joke string, panelWidth int) string {
+	contentWidth := panelWidth - 6 // 2 border + 4 padding (2 each side)
+	if contentWidth < 20 {
+		contentWidth = 20
+	}
+
+	// Header: "chief  <title>"
+	chiefStr := lipgloss.NewStyle().Bold(true).Foreground(cPrimary).Render("chief")
+	titleStr := lipgloss.NewStyle().Foreground(cText).Render(title)
+	header := chiefStr + "  " + titleStr
+
+	// Divider
+	divider := lipgloss.NewStyle().Foreground(cBorder).Render(strings.Repeat("─", contentWidth))
+
+	// Activity + progress bar
+	activityLine := renderActivityLine(activity, elapsed, contentWidth)
+	progressLine := renderProgressBar(elapsed, contentWidth)
+
+	// Joke (word-wrapped, muted)
+	wrappedJoke := wrapText(joke, contentWidth)
+	jokeStr := lipgloss.NewStyle().Foreground(cMuted).Render(wrappedJoke)
+
+	content := strings.Join([]string{
+		header,
+		divider,
+		"",
+		activityLine,
+		progressLine,
+		"",
+		divider,
+		jokeStr,
+	}, "\n")
+
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(cPrimary).
+		Padding(1, 2).
+		Width(panelWidth - 2)
+
+	return style.Render(content)
+}
+
+// renderSpinnerBox builds a simpler bordered panel for non-streaming operations.
+func renderSpinnerBox(title, activity string, elapsed time.Duration, panelWidth int) string {
+	contentWidth := panelWidth - 6
+	if contentWidth < 20 {
+		contentWidth = 20
+	}
+
+	chiefStr := lipgloss.NewStyle().Bold(true).Foreground(cPrimary).Render("chief")
+	titleStr := lipgloss.NewStyle().Foreground(cText).Render(title)
+	header := chiefStr + "  " + titleStr
+
+	divider := lipgloss.NewStyle().Foreground(cBorder).Render(strings.Repeat("─", contentWidth))
+	activityLine := renderActivityLine(activity, elapsed, contentWidth)
+
+	content := strings.Join([]string{
+		header,
+		divider,
+		"",
+		activityLine,
+	}, "\n")
+
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(cPrimary).
+		Padding(1, 2).
+		Width(panelWidth - 2)
+
+	return style.Render(content)
+}
+
+// clearPanelLines clears N lines of previous panel output by moving cursor up and erasing.
+func clearPanelLines(n int) {
+	if n <= 0 {
+		return
+	}
+	// Move to first line
+	if n > 1 {
+		fmt.Printf("\033[%dA", n-1)
+	}
+	fmt.Print("\r")
+	// Clear each line
+	for i := 0; i < n; i++ {
+		fmt.Print("\033[2K")
+		if i < n-1 {
+			fmt.Print("\n")
+		}
+	}
+	// Return to first line
+	if n > 1 {
+		fmt.Printf("\033[%dA", n-1)
+	}
+	fmt.Print("\r")
+}
+
+// repaintBox repaints the panel box, handling cursor movement for the previous frame.
+// Returns the new line count for the next frame.
+func repaintBox(box string, prevLines int) int {
+	newLines := strings.Count(box, "\n") + 1
+
+	// Move cursor to start of previous panel
+	if prevLines > 1 {
+		fmt.Printf("\033[%dA", prevLines-1)
+	}
+	if prevLines > 0 {
+		fmt.Print("\r")
+	}
+
+	// Print the new box
+	fmt.Print(box)
+
+	// Clear leftover lines if new box is shorter
+	if newLines < prevLines {
+		for i := 0; i < prevLines-newLines; i++ {
+			fmt.Print("\n\033[2K")
+		}
+		fmt.Printf("\033[%dA", prevLines-newLines)
+	}
+
+	return newLines
+}
+
+// waitWithSpinner runs a bordered panel while waiting for a command to finish.
+func waitWithSpinner(cmd *exec.Cmd, title, message string, stderr *bytes.Buffer) error {
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
 	}()
 
-	frame := 0
-	ticker := time.NewTicker(80 * time.Millisecond)
+	startTime := time.Now()
+	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
+
+	termWidth := getTerminalWidth()
+	panelWidth := termWidth - 2
+	if panelWidth > 62 {
+		panelWidth = 62
+	}
+
+	prevLines := 0
 
 	for {
 		select {
 		case err := <-done:
-			fmt.Print("\r\033[K")
+			clearPanelLines(prevLines)
 			if err != nil {
 				return fmt.Errorf("Claude failed: %s", stderr.String())
 			}
 			return nil
 		case <-ticker.C:
-			fmt.Printf("\r%s %s", spinnerFrames[frame%len(spinnerFrames)], message)
-			frame++
+			box := renderSpinnerBox(title, message, time.Since(startTime), panelWidth)
+			prevLines = repaintBox(box, prevLines)
 		}
 	}
 }
 
-// waitWithProgress runs a two-line progress display while waiting for a streaming command to finish.
+// waitWithProgress runs a styled progress panel while waiting for a streaming command to finish.
 // It parses Claude's stream-json output to show real-time activity (tool usage, thinking).
-func waitWithProgress(cmd *exec.Cmd, stdout io.ReadCloser, message string, stderr *bytes.Buffer) error {
+func waitWithProgress(cmd *exec.Cmd, stdout io.ReadCloser, title string, stderr *bytes.Buffer) error {
 	done := make(chan error, 1)
 	activity := make(chan string, 10)
 
@@ -287,7 +510,6 @@ func waitWithProgress(cmd *exec.Cmd, stdout io.ReadCloser, message string, stder
 	}()
 
 	startTime := time.Now()
-	frame := 0
 	currentActivity := "Starting..."
 	ticker := time.NewTicker(80 * time.Millisecond)
 	defer ticker.Stop()
@@ -297,15 +519,18 @@ func waitWithProgress(cmd *exec.Cmd, stdout io.ReadCloser, message string, stder
 	currentJoke := waitingJokes[jokeIndex]
 	lastJokeChange := time.Now()
 
-	// Print initial three lines
-	fmt.Printf("\r\033[K%s %s (%s)\n\033[K  → %s\n\033[K  💬 %s",
-		spinnerFrames[0], message, formatElapsed(time.Since(startTime)), currentActivity, currentJoke)
+	termWidth := getTerminalWidth()
+	panelWidth := termWidth - 2
+	if panelWidth > 62 {
+		panelWidth = 62
+	}
+
+	prevLines := 0
 
 	for {
 		select {
 		case err := <-done:
-			// Clear all three lines: move up 2, clear each line going down
-			fmt.Print("\r\033[K\033[A\r\033[K\033[A\r\033[K")
+			clearPanelLines(prevLines)
 			if err != nil {
 				return fmt.Errorf("Claude failed: %s", stderr.String())
 			}
@@ -320,12 +545,8 @@ func waitWithProgress(cmd *exec.Cmd, stdout io.ReadCloser, message string, stder
 				lastJokeChange = time.Now()
 			}
 
-			elapsed := formatElapsed(time.Since(startTime))
-			spinner := spinnerFrames[frame%len(spinnerFrames)]
-			// Move up 2 lines, redraw all 3 lines
-			fmt.Printf("\r\033[A\033[A\r\033[K%s %s (%s)\n\r\033[K  → %s\n\r\033[K  💬 %s",
-				spinner, message, elapsed, currentActivity, currentJoke)
-			frame++
+			box := renderProgressBox(title, currentActivity, time.Since(startTime), currentJoke, panelWidth)
+			prevLines = repaintBox(box, prevLines)
 		}
 	}
 }
