@@ -16,6 +16,7 @@ type DiffViewer struct {
 	stats      string
 	baseDir    string
 	storyID    string // Story ID whose commit diff is being shown (empty = full branch diff)
+	wip        bool   // True when showing uncommitted WIP changes
 	err        error
 	loaded     bool
 }
@@ -41,25 +42,55 @@ func (d *DiffViewer) SetBaseDir(dir string) {
 // Load fetches the latest git diff for the full branch.
 func (d *DiffViewer) Load() {
 	d.storyID = ""
+	d.wip = false
 	d.loadDiff("", "")
 }
 
 // LoadForStory fetches the git diff for a specific story's commit.
+// If no commit is found, it shows uncommitted WIP changes instead.
 func (d *DiffViewer) LoadForStory(storyID string) {
 	d.storyID = storyID
 
 	// Find the commit for this story
 	commitHash, err := git.FindCommitForStory(d.baseDir, storyID)
 	if err != nil || commitHash == "" {
-		d.offset = 0
-		d.loaded = true
-		d.err = nil
+		// No commit yet — show uncommitted WIP changes
+		d.wip = true
+		d.loadUncommittedDiff()
+		return
+	}
+
+	d.wip = false
+	d.loadDiff(storyID, commitHash)
+}
+
+// loadUncommittedDiff loads uncommitted changes (staged + unstaged) against HEAD.
+func (d *DiffViewer) loadUncommittedDiff() {
+	d.offset = 0
+	d.loaded = true
+
+	diff, err := git.GetUncommittedDiff(d.baseDir)
+	if err != nil {
+		d.err = err
 		d.lines = nil
 		d.stats = ""
 		return
 	}
 
-	d.loadDiff(storyID, commitHash)
+	d.err = nil
+
+	if strings.TrimSpace(diff) == "" {
+		d.lines = nil
+		d.stats = ""
+		return
+	}
+
+	d.lines = strings.Split(diff, "\n")
+
+	stats, err := git.GetUncommittedDiffStats(d.baseDir)
+	if err == nil {
+		d.stats = stats
+	}
 }
 
 // loadDiff loads a diff, either for a specific commit or the full branch.
@@ -166,6 +197,9 @@ func (d *DiffViewer) Render() string {
 	}
 
 	if len(d.lines) == 0 {
+		if d.wip {
+			return lipgloss.NewStyle().Foreground(MutedColor).Render("No uncommitted changes for " + d.storyID)
+		}
 		if d.storyID != "" {
 			return lipgloss.NewStyle().Foreground(MutedColor).Render("No commit found for " + d.storyID)
 		}
@@ -174,8 +208,20 @@ func (d *DiffViewer) Render() string {
 
 	var content strings.Builder
 
+	// Show WIP warning banner
+	wipBannerHeight := 0
+	if d.wip {
+		warning := lipgloss.NewStyle().
+			Foreground(WarningColor).
+			Bold(true).
+			Render("⚠ Uncommitted changes (WIP) — no commit found for " + d.storyID)
+		content.WriteString(warning)
+		content.WriteString("\n\n")
+		wipBannerHeight = 2
+	}
+
 	// Render visible lines with syntax highlighting
-	visibleEnd := d.offset + d.height
+	visibleEnd := d.offset + d.height - wipBannerHeight
 	if visibleEnd > len(d.lines) {
 		visibleEnd = len(d.lines)
 	}

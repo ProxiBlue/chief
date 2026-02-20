@@ -125,35 +125,24 @@ func GetDiffStats(dir string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// GetDiffForCommit returns the diff for a single commit.
+// GetDiffForCommit returns the diff for a single commit using git show.
 func GetDiffForCommit(dir, commitHash string) (string, error) {
-	cmd := exec.Command("git", "diff", commitHash+"~1", commitHash)
+	cmd := exec.Command("git", "show", "--format=", commitHash)
 	cmd.Dir = dir
 	output, err := cmd.Output()
 	if err != nil {
-		// If commitHash~1 doesn't exist (first commit), diff against empty tree
-		cmd = exec.Command("git", "diff", "4b825dc642cb6eb9a060e54bf899d69f82049674", commitHash)
-		cmd.Dir = dir
-		output, err = cmd.Output()
-		if err != nil {
-			return "", err
-		}
+		return "", err
 	}
 	return string(output), nil
 }
 
 // GetDiffStatsForCommit returns the diffstat for a single commit.
 func GetDiffStatsForCommit(dir, commitHash string) (string, error) {
-	cmd := exec.Command("git", "diff", "--stat", commitHash+"~1", commitHash)
+	cmd := exec.Command("git", "show", "--format=", "--stat", commitHash)
 	cmd.Dir = dir
 	output, err := cmd.Output()
 	if err != nil {
-		cmd = exec.Command("git", "diff", "--stat", "4b825dc642cb6eb9a060e54bf899d69f82049674", commitHash)
-		cmd.Dir = dir
-		output, err = cmd.Output()
-		if err != nil {
-			return "", err
-		}
+		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
 }
@@ -169,6 +158,28 @@ func FindCommitForStory(dir, storyID string) (string, error) {
 	}
 	hash := strings.TrimSpace(string(output))
 	return hash, nil
+}
+
+// GetUncommittedDiff returns the diff of all uncommitted changes (staged + unstaged) against HEAD.
+func GetUncommittedDiff(dir string) (string, error) {
+	cmd := exec.Command("git", "diff", "HEAD")
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
+// GetUncommittedDiffStats returns the diffstat for uncommitted changes against HEAD.
+func GetUncommittedDiffStats(dir string) (string, error) {
+	cmd := exec.Command("git", "diff", "--stat", "HEAD")
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 // getMergeBase returns the merge base commit between two refs.
