@@ -105,6 +105,9 @@ type worktreeStepResultMsg struct {
 // worktreeSpinnerTickMsg is sent to animate the worktree setup spinner.
 type worktreeSpinnerTickMsg struct{}
 
+// elapsedTickMsg is sent every second to update the elapsed time display.
+type elapsedTickMsg struct{}
+
 // settingsGHCheckResultMsg is sent when GH CLI validation completes in settings.
 type settingsGHCheckResultMsg struct {
 	installed     bool
@@ -413,6 +416,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case worktreeStepResultMsg:
 		return a.handleWorktreeStepResult(msg)
+
+	case elapsedTickMsg:
+		if a.state == StateRunning {
+			return a, tickElapsed()
+		}
+		return a, nil
 
 	case worktreeSpinnerTickMsg:
 		if a.viewMode == ViewWorktreeSpinner {
@@ -736,10 +745,10 @@ func (a App) doStartLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 		a.state = StateRunning
 		a.startTime = time.Now()
 		a.lastActivity = "Starting loop..."
-	} else {
-		a.lastActivity = "Started loop for: " + prdName
+		return a, tickElapsed()
 	}
 
+	a.lastActivity = "Started loop for: " + prdName
 	return a, nil
 }
 
@@ -1466,6 +1475,13 @@ func tickWorktreeSpinner() tea.Cmd {
 	})
 }
 
+// tickElapsed returns a tea.Cmd that ticks every second for the elapsed time display.
+func tickElapsed() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return elapsedTickMsg{}
+	})
+}
+
 // runWorktreeStep runs a worktree setup step asynchronously.
 func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, branchName string) tea.Cmd {
 	switch step {
@@ -1919,8 +1935,12 @@ func (a App) switchToPRD(name, prdPath string) (tea.Model, tea.Cmd) {
 	// Clear log viewer (each PRD has its own log)
 	a.logViewer.Clear()
 
-	// Return with new watcher listener
-	return a, a.listenForPRDChanges()
+	// Return with new watcher listener (and elapsed tick if running)
+	cmds := []tea.Cmd{a.listenForPRDChanges()}
+	if appState == StateRunning {
+		cmds = append(cmds, tickElapsed())
+	}
+	return a, tea.Batch(cmds...)
 }
 
 // renderPickerView renders the PRD picker modal overlaid on the dashboard.
