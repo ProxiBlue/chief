@@ -2,6 +2,14 @@
 
 All notable changes to Chief are documented in this file.
 
+## [0.5.4] - 2026-02-20
+
+### Bug Fixes
+- TUI now manages story in-progress state directly on `EventStoryStarted`, fixing a race where the status was never shown
+- TUI auto-selects the active story so its details are visible immediately
+- Clear in-progress flags on completion, error, or max iterations
+- Prevent non-JSON output from PRD conversion by disabling tools
+
 ## [0.5.3] - 2026-02-20
 
 ### Performance
