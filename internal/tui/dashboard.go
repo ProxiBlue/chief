@@ -464,6 +464,20 @@ func (a *App) renderDetailsPanel(width, height int) string {
 		content.WriteString("\n")
 	}
 
+	// Progress (from progress.md)
+	if entries, ok := a.progress[story.ID]; ok && len(entries) > 0 {
+		content.WriteString("\n")
+		content.WriteString(labelStyle.Render("Progress"))
+		content.WriteString("\n")
+		for _, entry := range entries {
+			rendered := renderGlamour(entry.Content, width-4)
+			if rendered != "" {
+				content.WriteString(rendered)
+				content.WriteString("\n")
+			}
+		}
+	}
+
 	return panelStyle.Width(width).Height(height).Render(content.String())
 }
 
