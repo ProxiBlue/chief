@@ -146,6 +146,7 @@ const (
 	ViewWorktreeSpinner
 	ViewCompletion
 	ViewSettings
+	ViewQuitConfirm
 )
 
 // App is the main Bubble Tea model for the Chief TUI.
@@ -212,6 +213,9 @@ type App struct {
 
 	// Settings overlay
 	settingsOverlay *SettingsOverlay
+
+	// Quit confirmation dialog
+	quitConfirm *QuitConfirmation
 
 	// Completion notification callback
 	onCompletion func(prdName string)
@@ -334,6 +338,7 @@ func NewAppWithOptions(prdPath string, maxIter int) (*App, error) {
 		worktreeSpinner:  NewWorktreeSpinner(),
 		completionScreen: NewCompletionScreen(),
 		settingsOverlay:  NewSettingsOverlay(),
+		quitConfirm:     NewQuitConfirmation(),
 	}, nil
 }
 
@@ -551,11 +556,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a.handleCompletionKeys(msg)
 		}
 
+		// Handle quit confirmation dialog
+		if a.viewMode == ViewQuitConfirm {
+			return a.handleQuitConfirmKeys(msg)
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
-			a.stopAllLoops()
-			a.stopWatcher()
-			return a, tea.Quit
+			return a.tryQuit()
 
 		// View switching
 		case "t":
@@ -849,6 +857,52 @@ func (a *App) stopAllLoops() {
 	}
 }
 
+// tryQuit attempts to quit the app. If any loop is running, it shows the quit
+// confirmation dialog instead of quitting immediately.
+func (a App) tryQuit() (tea.Model, tea.Cmd) {
+	if a.manager != nil && a.manager.IsAnyRunning() {
+		a.previousViewMode = a.viewMode
+		a.viewMode = ViewQuitConfirm
+		a.quitConfirm.Reset()
+		a.quitConfirm.SetSize(a.width, a.height)
+		return a, nil
+	}
+	a.stopAllLoops()
+	a.stopWatcher()
+	return a, tea.Quit
+}
+
+// handleQuitConfirmKeys handles keyboard input for the quit confirmation dialog.
+func (a App) handleQuitConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		a.viewMode = a.previousViewMode
+		return a, nil
+	case "up", "k":
+		a.quitConfirm.MoveUp()
+		return a, nil
+	case "down", "j":
+		a.quitConfirm.MoveDown()
+		return a, nil
+	case "enter":
+		if a.quitConfirm.GetSelected() == QuitOptionQuit {
+			a.stopAllLoops()
+			a.stopWatcher()
+			return a, tea.Quit
+		}
+		// Cancel
+		a.viewMode = a.previousViewMode
+		return a, nil
+	}
+	return a, nil
+}
+
+// renderQuitConfirmView renders the quit confirmation dialog.
+func (a *App) renderQuitConfirmView() string {
+	a.quitConfirm.SetSize(a.width, a.height)
+	return a.quitConfirm.Render()
+}
+
 // handleLoopEvent handles events from the manager.
 func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.Cmd) {
 	// Only update iteration and log if this is the currently viewed PRD
@@ -1013,6 +1067,8 @@ func (a App) View() string {
 		return a.renderCompletionView()
 	case ViewSettings:
 		return a.renderSettingsView()
+	case ViewQuitConfirm:
+		return a.renderQuitConfirmView()
 	default:
 		return a.renderDashboard()
 	}
@@ -1413,9 +1469,7 @@ func (a App) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.viewMode = a.previousViewMode
 		return a, nil
 	case "q", "ctrl+c":
-		a.stopAllLoops()
-		a.stopWatcher()
-		return a, tea.Quit
+		return a.tryQuit()
 	case "up", "k":
 		a.settingsOverlay.MoveUp()
 		return a, nil
@@ -1479,9 +1533,7 @@ func (a App) handleSettingsGHCheck(msg settingsGHCheckResultMsg) (tea.Model, tea
 func (a App) handleCompletionKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
-		a.stopAllLoops()
-		a.stopWatcher()
-		return a, tea.Quit
+		return a.tryQuit()
 
 	case "l":
 		// Switch to the picker
@@ -1828,9 +1880,7 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.viewMode = ViewDashboard
 		return a, nil
 	case "q", "ctrl+c":
-		a.stopAllLoops()
-		a.stopWatcher()
-		return a, tea.Quit
+		return a.tryQuit()
 	case "up", "k":
 		a.picker.MoveUp()
 		a.picker.Refresh() // Refresh to get latest state
