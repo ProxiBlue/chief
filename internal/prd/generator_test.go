@@ -34,6 +34,31 @@ func TestCleanJSONOutput(t *testing.T) {
 			input:    "  \n{\"project\": \"test\"}\n  ",
 			expected: `{"project": "test"}`,
 		},
+		{
+			name:     "with conversational preamble",
+			input:    "Since the file write is being denied, here's the JSON output directly:\n\n{\"project\": \"test\"}",
+			expected: `{"project": "test"}`,
+		},
+		{
+			name:     "with preamble and nested objects",
+			input:    "Here is the JSON:\n{\"project\": \"test\", \"userStories\": [{\"id\": \"US-001\"}]}",
+			expected: `{"project": "test", "userStories": [{"id": "US-001"}]}`,
+		},
+		{
+			name:     "with preamble and trailing text",
+			input:    "Here you go:\n{\"project\": \"test\"}\nLet me know if you need changes.",
+			expected: `{"project": "test"}`,
+		},
+		{
+			name:     "with code fence and preamble",
+			input:    "Here is the output:\n```json\n{\"project\": \"test\"}\n```",
+			expected: `{"project": "test"}`,
+		},
+		{
+			name:     "JSON with escaped quotes in preamble scenario",
+			input:    "Output:\n{\"project\": \"test \\\"quoted\\\"\"}",
+			expected: `{"project": "test \"quoted\""}`,
+		},
 	}
 
 	for _, tt := range tests {

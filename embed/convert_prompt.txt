@@ -6,7 +6,7 @@ Here is the PRD content:
 {{PRD_CONTENT}}
 </prd>
 
-Return ONLY valid JSON — no markdown fences, no explanation, no commentary. The JSON must follow this exact structure:
+Do NOT use any tools. Do NOT write any files. Output ONLY the raw JSON to stdout — no markdown fences, no explanation, no preamble, no commentary. The JSON must follow this exact structure:
 
 {
   "project": "Project Name",

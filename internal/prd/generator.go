@@ -189,8 +189,9 @@ func runClaudeConversion(absPRDDir string) (string, error) {
 
 	prompt := embed.GetConvertPrompt(string(content))
 
-	cmd := exec.Command("claude", "-p", prompt)
+	cmd := exec.Command("claude", "-p", "--tools", "")
 	cmd.Dir = absPRDDir
+	cmd.Stdin = strings.NewReader(prompt)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -592,7 +593,8 @@ func NeedsConversion(prdDir string) (bool, error) {
 	return mdInfo.ModTime().After(jsonInfo.ModTime()), nil
 }
 
-// cleanJSONOutput removes markdown code blocks and trims whitespace from Claude's output.
+// cleanJSONOutput removes markdown code blocks, conversational preamble, and trims
+// whitespace from Claude's output to extract the JSON object.
 func cleanJSONOutput(output string) string {
 	output = strings.TrimSpace(output)
 
@@ -605,6 +607,55 @@ func cleanJSONOutput(output string) string {
 
 	if strings.HasSuffix(output, "```") {
 		output = strings.TrimSuffix(output, "```")
+	}
+
+	output = strings.TrimSpace(output)
+
+	// If output doesn't start with '{', Claude may have added preamble text.
+	// Extract the JSON object by finding the first '{' and matching closing '}'.
+	if len(output) > 0 && output[0] != '{' {
+		start := strings.Index(output, "{")
+		if start == -1 {
+			return output // No JSON object found, return as-is for error handling
+		}
+		// Find the matching closing brace by counting brace depth
+		depth := 0
+		inString := false
+		escaped := false
+		end := -1
+		for i := start; i < len(output); i++ {
+			if escaped {
+				escaped = false
+				continue
+			}
+			ch := output[i]
+			if ch == '\\' && inString {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = !inString
+				continue
+			}
+			if inString {
+				continue
+			}
+			if ch == '{' {
+				depth++
+			} else if ch == '}' {
+				depth--
+				if depth == 0 {
+					end = i
+					break
+				}
+			}
+		}
+		if end != -1 {
+			output = output[start : end+1]
+		} else {
+			// No matching closing brace; take from first '{' to end
+			output = output[start:]
+		}
 	}
 
 	return strings.TrimSpace(output)
