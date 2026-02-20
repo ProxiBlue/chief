@@ -2,6 +2,14 @@
 
 All notable changes to Chief are documented in this file.
 
+## [0.5.3] - 2026-02-20
+
+### Performance
+- Cache pre-rendered log lines to eliminate per-frame TUI rebuilds
+
+### Documentation
+- Update documentation for v0.3.1–v0.5.2 release changes
+
 ## [0.5.2] - 2026-02-20
 
 ### Bug Fixes
@@ -91,6 +99,8 @@ Initial release.
 - CLI commands: `chief new`, `chief edit`, `chief status`, `chief list`
 - Homebrew formula and install script
 
+[0.5.3]: https://github.com/MiniCodeMonkey/chief/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/MiniCodeMonkey/chief/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/MiniCodeMonkey/chief/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/MiniCodeMonkey/chief/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MiniCodeMonkey/chief/compare/v0.3.1...v0.4.0
