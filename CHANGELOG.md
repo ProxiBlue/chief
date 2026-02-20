@@ -2,6 +2,11 @@
 
 All notable changes to Chief are documented in this file.
 
+## [0.5.2] - 2026-02-20
+
+### Bug Fixes
+- Log raw output when PRD JSON conversion fails, making it easier to diagnose parsing errors
+
 ## [0.5.1] - 2026-02-19
 
 ### Features
