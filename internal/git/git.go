@@ -147,10 +147,13 @@ func GetDiffStatsForCommit(dir, commitHash string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// FindCommitForStory searches the git log for a commit matching the given story ID.
+// FindCommitForStory searches the git log for a commit whose subject line
+// matches the chief commit format "feat: <storyID> - <title>".
+// Both the story ID and title are required to avoid false positives from
+// previous PRD runs that may reuse the same story IDs.
 // Returns the commit hash if found, empty string otherwise.
-func FindCommitForStory(dir, storyID string) (string, error) {
-	cmd := exec.Command("git", "log", "--grep="+storyID, "--format=%H", "-1")
+func FindCommitForStory(dir, storyID, title string) (string, error) {
+	cmd := exec.Command("git", "log", "--fixed-strings", "--grep=feat: "+storyID+" - "+title, "--format=%H", "-1")
 	cmd.Dir = dir
 	output, err := cmd.Output()
 	if err != nil {
@@ -158,28 +161,6 @@ func FindCommitForStory(dir, storyID string) (string, error) {
 	}
 	hash := strings.TrimSpace(string(output))
 	return hash, nil
-}
-
-// GetUncommittedDiff returns the diff of all uncommitted changes (staged + unstaged) against HEAD.
-func GetUncommittedDiff(dir string) (string, error) {
-	cmd := exec.Command("git", "diff", "HEAD")
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
-}
-
-// GetUncommittedDiffStats returns the diffstat for uncommitted changes against HEAD.
-func GetUncommittedDiffStats(dir string) (string, error) {
-	cmd := exec.Command("git", "diff", "--stat", "HEAD")
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
 }
 
 // getMergeBase returns the merge base commit between two refs.

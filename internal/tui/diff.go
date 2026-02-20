@@ -16,7 +16,7 @@ type DiffViewer struct {
 	stats      string
 	baseDir    string
 	storyID    string // Story ID whose commit diff is being shown (empty = full branch diff)
-	wip        bool   // True when showing uncommitted WIP changes
+	noCommit   bool   // True when no commit was found for the selected story
 	err        error
 	loaded     bool
 }
@@ -42,55 +42,30 @@ func (d *DiffViewer) SetBaseDir(dir string) {
 // Load fetches the latest git diff for the full branch.
 func (d *DiffViewer) Load() {
 	d.storyID = ""
-	d.wip = false
+	d.noCommit = false
 	d.loadDiff("", "")
 }
 
 // LoadForStory fetches the git diff for a specific story's commit.
-// If no commit is found, it shows uncommitted WIP changes instead.
-func (d *DiffViewer) LoadForStory(storyID string) {
+// If no commit is found, it shows a "not committed yet" message.
+func (d *DiffViewer) LoadForStory(storyID, title string) {
 	d.storyID = storyID
 
-	// Find the commit for this story
-	commitHash, err := git.FindCommitForStory(d.baseDir, storyID)
+	// Find the commit for this story (match both ID and title to avoid
+	// false positives from previous PRD runs with the same story IDs)
+	commitHash, err := git.FindCommitForStory(d.baseDir, storyID, title)
 	if err != nil || commitHash == "" {
-		// No commit yet — show uncommitted WIP changes
-		d.wip = true
-		d.loadUncommittedDiff()
+		d.noCommit = true
+		d.offset = 0
+		d.loaded = true
+		d.err = nil
+		d.lines = nil
+		d.stats = ""
 		return
 	}
 
-	d.wip = false
+	d.noCommit = false
 	d.loadDiff(storyID, commitHash)
-}
-
-// loadUncommittedDiff loads uncommitted changes (staged + unstaged) against HEAD.
-func (d *DiffViewer) loadUncommittedDiff() {
-	d.offset = 0
-	d.loaded = true
-
-	diff, err := git.GetUncommittedDiff(d.baseDir)
-	if err != nil {
-		d.err = err
-		d.lines = nil
-		d.stats = ""
-		return
-	}
-
-	d.err = nil
-
-	if strings.TrimSpace(diff) == "" {
-		d.lines = nil
-		d.stats = ""
-		return
-	}
-
-	d.lines = strings.Split(diff, "\n")
-
-	stats, err := git.GetUncommittedDiffStats(d.baseDir)
-	if err == nil {
-		d.stats = stats
-	}
 }
 
 // loadDiff loads a diff, either for a specific commit or the full branch.
@@ -197,31 +172,19 @@ func (d *DiffViewer) Render() string {
 	}
 
 	if len(d.lines) == 0 {
-		if d.wip {
-			return lipgloss.NewStyle().Foreground(MutedColor).Render("No uncommitted changes for " + d.storyID)
+		if d.noCommit {
+			return lipgloss.NewStyle().Foreground(WarningColor).Render("⚠ Not committed yet — " + d.storyID + " is still in progress")
 		}
 		if d.storyID != "" {
-			return lipgloss.NewStyle().Foreground(MutedColor).Render("No commit found for " + d.storyID)
+			return lipgloss.NewStyle().Foreground(MutedColor).Render("No changes for " + d.storyID)
 		}
 		return lipgloss.NewStyle().Foreground(MutedColor).Render("No changes detected")
 	}
 
 	var content strings.Builder
 
-	// Show WIP warning banner
-	wipBannerHeight := 0
-	if d.wip {
-		warning := lipgloss.NewStyle().
-			Foreground(WarningColor).
-			Bold(true).
-			Render("⚠ Uncommitted changes (WIP) — no commit found for " + d.storyID)
-		content.WriteString(warning)
-		content.WriteString("\n\n")
-		wipBannerHeight = 2
-	}
-
 	// Render visible lines with syntax highlighting
-	visibleEnd := d.offset + d.height - wipBannerHeight
+	visibleEnd := d.offset + d.height
 	if visibleEnd > len(d.lines) {
 		visibleEnd = len(d.lines)
 	}
