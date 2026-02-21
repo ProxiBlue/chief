@@ -2,6 +2,21 @@
 
 All notable changes to Chief are documented in this file.
 
+## [0.6.0] - 2026-02-21
+
+### Features
+- Continuous, responsive confetti animation on the completion screen
+- Quit confirmation modal when Ralph loop is running
+- Live progress from progress.md in dashboard details panel
+- Per-story timing and total duration on the completion screen
+
+### Bug Fixes
+- Match story commits by ID + title to prevent false positives
+- Show uncommitted WIP changes when story has no commit yet
+- Load claude.md on each iteration instead of only at startup
+- Update elapsed time display every second while running
+- Dynamically recalculate max iterations when switching PRDs
+
 ## [0.5.4] - 2026-02-20
 
 ### Bug Fixes
