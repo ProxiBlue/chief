@@ -37,6 +37,12 @@ type Confetti struct {
 	height    int
 }
 
+// SetSize updates the confetti bounds to match the current screen size.
+func (c *Confetti) SetSize(width, height int) {
+	c.width = width
+	c.height = height
+}
+
 // NewConfetti creates a new confetti system with particles spread across the screen.
 func NewConfetti(width, height int) *Confetti {
 	c := &Confetti{
@@ -62,20 +68,27 @@ func NewConfetti(width, height int) *Confetti {
 	return c
 }
 
-// Tick advances all particles by one frame.
+// Tick advances all particles by one frame, respawning expired ones at the top.
 func (c *Confetti) Tick() {
-	alive := c.particles[:0]
 	for i := range c.particles {
 		p := &c.particles[i]
 		p.x += p.vx
 		p.y += p.vy
 		p.life--
 
-		if p.life > 0 && p.y < float64(c.height) {
-			alive = append(alive, *p)
+		// Respawn particle at top when it expires or falls off screen
+		if p.life <= 0 || p.y >= float64(c.height) {
+			c.particles[i] = Particle{
+				x:     rand.Float64() * float64(c.width),
+				y:     -rand.Float64() * float64(c.height/3),
+				vx:    (rand.Float64() - 0.5) * 0.6,
+				vy:    0.2 + rand.Float64()*0.4,
+				char:  confettiChars[rand.Intn(len(confettiChars))],
+				color: confettiColors[rand.Intn(len(confettiColors))],
+				life:  80 + rand.Intn(120),
+			}
 		}
 	}
-	c.particles = alive
 }
 
 // Render draws all particles onto a character grid and returns it as a string.

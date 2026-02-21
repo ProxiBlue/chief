@@ -77,14 +77,24 @@ func (c *CompletionScreen) Configure(prdName string, completed, total int, branc
 	c.prURL = ""
 	c.prTitle = ""
 	c.spinnerFrame = 0
-	// Initialize confetti
-	c.confetti = NewConfetti(c.width, c.height)
+	// Initialize confetti (deferred until SetSize if dimensions aren't known yet)
+	if c.width > 0 && c.height > 0 {
+		c.confetti = NewConfetti(c.width, c.height)
+	} else {
+		c.confetti = nil
+	}
 }
 
 // SetSize sets the screen dimensions.
 func (c *CompletionScreen) SetSize(width, height int) {
 	c.width = width
 	c.height = height
+	if c.confetti != nil {
+		c.confetti.SetSize(width, height)
+	} else if c.prdName != "" && width > 0 && height > 0 {
+		// Initialize confetti now that we have real dimensions
+		c.confetti = NewConfetti(width, height)
+	}
 }
 
 // PRDName returns the PRD name shown on the completion screen.
@@ -459,6 +469,60 @@ func formatPRDTitle(name string) string {
 	return strings.Join(words, " ")
 }
 
+// ansiTruncate returns the first maxWidth visual columns of an ANSI-styled string,
+// properly passing through escape sequences without counting them as visible width.
+func ansiTruncate(s string, maxWidth int) string {
+	var result strings.Builder
+	width := 0
+	inEscape := false
+	for _, r := range s {
+		if r == '\033' {
+			inEscape = true
+			result.WriteRune(r)
+			continue
+		}
+		if inEscape {
+			result.WriteRune(r)
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+		if width >= maxWidth {
+			break
+		}
+		result.WriteRune(r)
+		width++
+	}
+	// Reset any open ANSI styling
+	result.WriteString("\033[0m")
+	return result.String()
+}
+
+// ansiSkip skips the first skipWidth visual columns of an ANSI-styled string
+// and returns the remainder.
+func ansiSkip(s string, skipWidth int) string {
+	width := 0
+	inEscape := false
+	for i, r := range s {
+		if r == '\033' {
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+		if width >= skipWidth {
+			return s[i:]
+		}
+		width++
+	}
+	return ""
+}
+
 // overlayModal composites a modal on top of a background, centering the modal.
 func overlayModal(background, modal string, screenWidth, screenHeight int) string {
 	bgLines := strings.Split(background, "\n")
@@ -501,38 +565,13 @@ func overlayModal(background, modal string, screenWidth, screenHeight int) strin
 			continue
 		}
 
-		// Build the composited line: bg prefix + modal + bg suffix
 		bgLine := bgLines[bgIdx]
-		bgRunes := []rune(bgLine)
 
-		// Pad bg line if needed
-		bgVisualWidth := lipgloss.Width(bgLine)
-		for bgVisualWidth < screenWidth {
-			bgRunes = append(bgRunes, ' ')
-			bgVisualWidth++
-		}
+		// Build: bg prefix (ANSI-aware) + modal line + bg suffix (ANSI-aware)
+		prefix := ansiTruncate(bgLine, offsetX)
+		suffix := ansiSkip(bgLine, offsetX+mWidth)
 
-		var result strings.Builder
-
-		// Write background chars before modal
-		prefixWidth := 0
-		runeIdx := 0
-		for runeIdx < len(bgRunes) && prefixWidth < offsetX {
-			result.WriteRune(bgRunes[runeIdx])
-			prefixWidth++
-			runeIdx++
-		}
-
-		// Pad if background was shorter than offsetX
-		for prefixWidth < offsetX {
-			result.WriteByte(' ')
-			prefixWidth++
-		}
-
-		// Write the modal line
-		result.WriteString(mLine)
-
-		bgLines[bgIdx] = result.String()
+		bgLines[bgIdx] = prefix + mLine + suffix
 	}
 
 	return strings.Join(bgLines[:screenHeight], "\n")
