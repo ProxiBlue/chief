@@ -24,6 +24,9 @@ type Provider interface {
 	InteractiveCommand(workDir, prompt string) *exec.Cmd
 	ConvertCommand(workDir, prompt string) (cmd *exec.Cmd, mode OutputMode, outPath string, err error)
 	FixJSONCommand(prompt string) (cmd *exec.Cmd, mode OutputMode, outPath string, err error)
+	// CleanOutput extracts JSON from the provider's output format (e.g., NDJSON).
+	// Returns the original output if no cleaning needed.
+	CleanOutput(output string) string
 	ParseLine(line string) *Event
 	LogFileName() string
 }

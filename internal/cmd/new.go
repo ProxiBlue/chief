@@ -120,10 +120,18 @@ func RunConvertWithOptions(opts ConvertOptions) error {
 		Merge:  opts.Merge,
 		Force:  opts.Force,
 		RunConversion: func(absPRDDir string) (string, error) {
-			return runConversionWithProvider(provider, absPRDDir)
+			raw, err := runConversionWithProvider(provider, absPRDDir)
+			if err != nil {
+				return "", err
+			}
+			return provider.CleanOutput(raw), nil
 		},
 		RunFixJSON: func(prompt string) (string, error) {
-			return runFixJSONWithProvider(provider, prompt)
+			raw, err := runFixJSONWithProvider(provider, prompt)
+			if err != nil {
+				return "", err
+			}
+			return provider.CleanOutput(raw), nil
 		},
 	})
 }

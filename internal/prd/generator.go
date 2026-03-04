@@ -54,9 +54,9 @@ var waitingJokes = []string{
 
 // ConvertOptions contains configuration for PRD conversion.
 type ConvertOptions struct {
-	PRDDir   string // Directory containing prd.md
-	Merge    bool   // Auto-merge progress on conversion conflicts
-	Force    bool   // Auto-overwrite on conversion conflicts
+	PRDDir string // Directory containing prd.md
+	Merge  bool   // Auto-merge progress on conversion conflicts
+	Force  bool   // Auto-overwrite on conversion conflicts
 	// RunConversion runs the agent to convert prd.md to JSON. Required.
 	RunConversion func(absPRDDir string) (string, error)
 	// RunFixJSON runs the agent to fix invalid JSON. Required.
@@ -117,7 +117,7 @@ func Convert(opts ConvertOptions) error {
 	}
 
 	// Clean up output (strip markdown fences if any)
-	cleanedJSON := cleanJSONOutput(rawJSON)
+	cleanedJSON := stripMarkdownFences(rawJSON)
 
 	// Parse and validate
 	newPRD, err := parseAndValidatePRD(cleanedJSON)
@@ -130,7 +130,7 @@ func Convert(opts ConvertOptions) error {
 			return fmt.Errorf("conversion retry failed: %w", retryErr)
 		}
 
-		cleanedJSON = cleanJSONOutput(fixedJSON)
+		cleanedJSON = stripMarkdownFences(fixedJSON)
 		newPRD, err = parseAndValidatePRD(cleanedJSON)
 		if err != nil {
 			return fmt.Errorf("conversion produced invalid JSON after retry:\n---\n%s\n---\n%w", cleanedJSON, err)
@@ -555,9 +555,9 @@ func NeedsConversion(prdDir string) (bool, error) {
 	return mdInfo.ModTime().After(jsonInfo.ModTime()), nil
 }
 
-// cleanJSONOutput removes markdown code blocks, conversational preamble, and trims
-// whitespace from Claude's output to extract the JSON object.
-func cleanJSONOutput(output string) string {
+// stripMarkdownFences removes markdown code blocks and extracts the JSON object.
+// This handles output from providers like Claude that may wrap JSON in markdown fences.
+func stripMarkdownFences(output string) string {
 	output = strings.TrimSpace(output)
 
 	// Remove markdown code blocks if present
@@ -573,7 +573,7 @@ func cleanJSONOutput(output string) string {
 
 	output = strings.TrimSpace(output)
 
-	// If output doesn't start with '{', Claude may have added preamble text.
+	// If output doesn't start with '{', the provider may have added preamble text.
 	// Extract the JSON object by finding the first '{' and matching closing '}'.
 	if len(output) > 0 && output[0] != '{' {
 		start := strings.Index(output, "{")

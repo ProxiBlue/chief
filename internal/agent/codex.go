@@ -79,3 +79,6 @@ func (p *CodexProvider) ParseLine(line string) *loop.Event {
 
 // LogFileName implements loop.Provider.
 func (p *CodexProvider) LogFileName() string { return "codex.log" }
+
+// CleanOutput implements loop.Provider - Codex doesn't use a special format.
+func (p *CodexProvider) CleanOutput(output string) string { return output }

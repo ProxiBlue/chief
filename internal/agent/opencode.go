@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"os/exec"
 	"strings"
 
@@ -53,3 +54,32 @@ func (p *OpenCodeProvider) ParseLine(line string) *loop.Event {
 }
 
 func (p *OpenCodeProvider) LogFileName() string { return "opencode.log" }
+
+// CleanOutput extracts JSON from opencode's NDJSON output format.
+func (p *OpenCodeProvider) CleanOutput(output string) string {
+	output = strings.TrimSpace(output)
+
+	if !strings.Contains(output, "\n") || !strings.Contains(output, `"type":"step_start"`) || !strings.Contains(output, `"type":"text"`) {
+		return output
+	}
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.Contains(line, `"type":"text"`) {
+			var ev struct {
+				Type string `json:"type"`
+				Part struct {
+					Text string `json:"text"`
+				} `json:"part"`
+			}
+			if json.Unmarshal([]byte(line), &ev) == nil && ev.Part.Text != "" {
+				return ev.Part.Text
+			}
+		}
+	}
+	return output
+}

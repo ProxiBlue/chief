@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestCleanJSONOutput(t *testing.T) {
+func TestStripMarkdownFences(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -63,9 +63,9 @@ func TestCleanJSONOutput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := cleanJSONOutput(tt.input)
+			result := stripMarkdownFences(tt.input)
 			if result != tt.expected {
-				t.Errorf("cleanJSONOutput() = %q, want %q", result, tt.expected)
+				t.Errorf("stripMarkdownFences() = %q, want %q", result, tt.expected)
 			}
 		})
 	}

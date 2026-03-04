@@ -68,3 +68,6 @@ func (p *ClaudeProvider) ParseLine(line string) *loop.Event {
 
 // LogFileName implements loop.Provider.
 func (p *ClaudeProvider) LogFileName() string { return "claude.log" }
+
+// CleanOutput implements loop.Provider - Claude doesn't use a special format.
+func (p *ClaudeProvider) CleanOutput(output string) string { return output }
