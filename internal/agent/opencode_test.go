@@ -86,6 +86,9 @@ func TestOpenCodeProvider_FixJSONCommand(t *testing.T) {
 	if outPath != "" {
 		t.Errorf("FixJSONCommand outPath = %q, want empty string", outPath)
 	}
+	if cmd.Path != "opencode" {
+		t.Errorf("FixJSONCommand Path = %q, want opencode", cmd.Path)
+	}
 }
 
 func TestOpenCodeProvider_InteractiveCommand(t *testing.T) {
@@ -93,6 +96,9 @@ func TestOpenCodeProvider_InteractiveCommand(t *testing.T) {
 	cmd := p.InteractiveCommand("/work", "my prompt")
 	if cmd.Dir != "/work" {
 		t.Errorf("InteractiveCommand Dir = %q, want /work", cmd.Dir)
+	}
+	if len(cmd.Args) != 3 || cmd.Args[0] != "opencode" || cmd.Args[1] != "--prompt" || cmd.Args[2] != "my prompt" {
+		t.Errorf("InteractiveCommand Args = %v, want [opencode --prompt 'my prompt']", cmd.Args)
 	}
 }
 

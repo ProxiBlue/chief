@@ -30,7 +30,7 @@ func (p *OpenCodeProvider) LoopCommand(ctx context.Context, prompt, workDir stri
 }
 
 func (p *OpenCodeProvider) InteractiveCommand(workDir, prompt string) *exec.Cmd {
-	cmd := exec.Command(p.cliPath)
+	cmd := exec.Command(p.cliPath, "--prompt", prompt)
 	cmd.Dir = workDir
 	return cmd
 }
