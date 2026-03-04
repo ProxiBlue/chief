@@ -81,6 +81,7 @@ release:
 # Homebrew tap configuration
 brews:
   - name: chief
+    enabled: false
     # Repository to push the formula to
     repository:
       owner: minicodemonkey
