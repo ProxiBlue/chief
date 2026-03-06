@@ -1,12 +1,12 @@
 #!/bin/sh
 # Chief Install Script
-# https://github.com/tpaulshippy/chief
+# https://github.com/minicodemonkey/chief
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/tpaulshippy/chief/refs/heads/feature/opencode-support-v2/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh
 #
 # Or with a specific version:
-#   curl -fsSL https://raw.githubusercontent.com/tpaulshippy/chief/refs/heads/feature/opencode-support-v2/install.sh | sh -s -- --version v0.1.0
+#   curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh -s -- --version v0.1.0
 #
 # This script:
 #   - Detects OS (darwin/linux) and architecture (amd64/arm64)
@@ -33,7 +33,7 @@ else
 fi
 
 # Configuration
-GITHUB_REPO="tpaulshippy/chief"
+GITHUB_REPO="minicodemonkey/chief"
 BINARY_NAME="chief"
 VERSION=""
 
@@ -215,8 +215,8 @@ parse_args() {
 Chief Install Script
 
 Usage:
-    curl -fsSL https://raw.githubusercontent.com/tpaulshippy/chief/refs/heads/feature/opencode-support-v2/install.sh | sh
-    curl -fsSL https://raw.githubusercontent.com/tpaulshippy/chief/refs/heads/feature/opencode-support-v2/install.sh | sh -s -- --version v0.1.0
+    curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh -s -- --version v0.1.0
 
 Options:
     --version, -v VERSION    Install a specific version (e.g., v0.1.0)

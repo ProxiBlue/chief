@@ -19,7 +19,7 @@ brew install minicodemonkey/chief/chief
 Or via install script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tpaulshippy/chief/refs/heads/feature/opencode-support-v2/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh
 ```
 
 ## Usage
