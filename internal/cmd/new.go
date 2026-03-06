@@ -121,7 +121,7 @@ func RunConvertWithOptions(opts ConvertOptions) error {
 		PRDDir: opts.PRDDir,
 		Merge:  opts.Merge,
 		Force:  opts.Force,
-		RunConversion: func(absPRDDir string) (string, error) {
+		RunConversion: func(absPRDDir, idPrefix string) (string, error) {
 			raw, err := runConversionWithProvider(provider, absPRDDir)
 			if err != nil {
 				return "", err

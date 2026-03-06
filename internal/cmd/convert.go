@@ -13,11 +13,7 @@ import (
 
 // runConversionWithProvider runs the agent to convert prd.md to JSON.
 func runConversionWithProvider(provider loop.Provider, absPRDDir string) (string, error) {
-	content, err := os.ReadFile(filepath.Join(absPRDDir, "prd.md"))
-	if err != nil {
-		return "", fmt.Errorf("failed to read prd.md: %w", err)
-	}
-	prompt := embed.GetConvertPrompt(string(content))
+	prompt := embed.GetConvertPrompt(filepath.Join(absPRDDir, "prd.md"), "US")
 	cmd, mode, outPath, err := provider.ConvertCommand(absPRDDir, prompt)
 	if err != nil {
 		return "", fmt.Errorf("failed to prepare conversion command: %w", err)

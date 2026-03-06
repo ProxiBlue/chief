@@ -58,7 +58,7 @@ type ConvertOptions struct {
 	Merge  bool   // Auto-merge progress on conversion conflicts
 	Force  bool   // Auto-overwrite on conversion conflicts
 	// RunConversion runs the agent to convert prd.md to JSON. Required.
-	RunConversion func(absPRDDir string) (string, error)
+	RunConversion func(absPRDDir, idPrefix string) (string, error)
 	// RunFixJSON runs the agent to fix invalid JSON. Required.
 	RunFixJSON func(prompt string) (string, error)
 }

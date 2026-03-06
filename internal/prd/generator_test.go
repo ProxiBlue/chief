@@ -381,10 +381,10 @@ func TestMergeProgress(t *testing.T) {
 	t.Run("mixed scenario - add, remove, keep", func(t *testing.T) {
 		oldPRD := &PRD{
 			UserStories: []UserStory{
-				{ID: "US-001", Passes: true},         // Keep with progress
-				{ID: "US-002", Passes: true},         // Removed
-				{ID: "US-003", InProgress: true},     // Keep with progress
-				{ID: "US-004", Passes: false},        // Keep without progress
+				{ID: "US-001", Passes: true},     // Keep with progress
+				{ID: "US-002", Passes: true},     // Removed
+				{ID: "US-003", InProgress: true}, // Keep with progress
+				{ID: "US-004", Passes: false},    // Keep without progress
 			},
 		}
 		newPRD := &PRD{

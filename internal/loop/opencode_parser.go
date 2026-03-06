@@ -7,32 +7,32 @@ import (
 )
 
 type opencodeEvent struct {
-	Type      string          `json:"type"`
-	Timestamp int64           `json:"timestamp"`
-	SessionID string          `json:"sessionID"`
+	Type      string         `json:"type"`
+	Timestamp int64          `json:"timestamp"`
+	SessionID string         `json:"sessionID"`
 	Part      *opencodePart  `json:"part,omitempty"`
 	Error     *opencodeError `json:"error,omitempty"`
 }
 
 type opencodePart struct {
-	ID       string           `json:"id"`
-	Type     string           `json:"type,omitempty"`
-	Text     string           `json:"text,omitempty"`
-	Tool     string           `json:"tool,omitempty"`
-	CallID   string           `json:"callID,omitempty"`
-	Reason   string           `json:"reason,omitempty"`
-	Snapshot string           `json:"snapshot,omitempty"`
-	State    *opencodeState   `json:"state,omitempty"`
-	Tokens   *opencodeTokens  `json:"tokens,omitempty"`
-	Cost     float64          `json:"cost,omitempty"`
+	ID       string          `json:"id"`
+	Type     string          `json:"type,omitempty"`
+	Text     string          `json:"text,omitempty"`
+	Tool     string          `json:"tool,omitempty"`
+	CallID   string          `json:"callID,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
+	Snapshot string          `json:"snapshot,omitempty"`
+	State    *opencodeState  `json:"state,omitempty"`
+	Tokens   *opencodeTokens `json:"tokens,omitempty"`
+	Cost     float64         `json:"cost,omitempty"`
 }
 
 type opencodeState struct {
-	Status  string                 `json:"status"`
-	Input   map[string]interface{} `json:"input,omitempty"`
-	Output  string                 `json:"output,omitempty"`
-	Title   string                 `json:"title,omitempty"`
-	Time    *opencodeTime          `json:"time,omitempty"`
+	Status string                 `json:"status"`
+	Input  map[string]interface{} `json:"input,omitempty"`
+	Output string                 `json:"output,omitempty"`
+	Title  string                 `json:"title,omitempty"`
+	Time   *opencodeTime          `json:"time,omitempty"`
 }
 
 type opencodeTime struct {
@@ -41,10 +41,10 @@ type opencodeTime struct {
 }
 
 type opencodeTokens struct {
-	Input    int `json:"input"`
-	Output   int `json:"output"`
-	Reasoning int `json:"reasoning"`
-	Cache    *opencodeCacheTokens `json:"cache,omitempty"`
+	Input     int                  `json:"input"`
+	Output    int                  `json:"output"`
+	Reasoning int                  `json:"reasoning"`
+	Cache     *opencodeCacheTokens `json:"cache,omitempty"`
 }
 
 type opencodeCacheTokens struct {
@@ -53,7 +53,7 @@ type opencodeCacheTokens struct {
 }
 
 type opencodeError struct {
-	Name string          `json:"name"`
+	Name string             `json:"name"`
 	Data *opencodeErrorData `json:"data,omitempty"`
 }
 

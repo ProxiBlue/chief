@@ -84,10 +84,10 @@ type mergeResultMsg struct {
 
 // cleanResultMsg is sent when a clean operation completes.
 type cleanResultMsg struct {
-	prdName      string
-	success      bool
-	message      string
-	clearBranch  bool
+	prdName     string
+	success     bool
+	message     string
+	clearBranch bool
 }
 
 // autoActionResultMsg is sent when a post-completion auto-action (push/PR) completes.
@@ -151,17 +151,17 @@ const (
 
 // App is the main Bubble Tea model for the Chief TUI.
 type App struct {
-	prd           *prd.PRD
-	prdPath       string
-	prdName       string
-	state         AppState
-	iteration     int
-	startTime     time.Time
-	selectedIndex      int
+	prd                 *prd.PRD
+	prdPath             string
+	prdName             string
+	state               AppState
+	iteration           int
+	startTime           time.Time
+	selectedIndex       int
 	storiesScrollOffset int
-	width              int
-	height             int
-	err           error
+	width               int
+	height              int
+	err                 error
 
 	// Loop manager for parallel PRD execution
 	manager  *loop.Manager
@@ -198,8 +198,8 @@ type App struct {
 	previousViewMode ViewMode // View to return to when closing help
 
 	// Branch warning dialog
-	branchWarning      *BranchWarning
-	pendingStartPRD    string // PRD name waiting to start after branch decision
+	branchWarning       *BranchWarning
+	pendingStartPRD     string // PRD name waiting to start after branch decision
 	pendingWorktreePath string // Absolute worktree path for pending PRD
 
 	// Worktree setup spinner
@@ -209,8 +209,8 @@ type App struct {
 	completionScreen *CompletionScreen
 
 	// Story timing tracking
-	storyTimings     []StoryTiming
-	currentStoryID   string
+	storyTimings      []StoryTiming
+	currentStoryID    string
 	currentStoryStart time.Time
 
 	// Settings overlay
@@ -317,31 +317,31 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 	picker := NewPRDPicker(baseDir, prdName, manager)
 
 	return &App{
-		prd:           p,
-		prdPath:       prdPath,
-		prdName:       prdName,
-		state:         StateReady,
-		iteration:     0,
-		selectedIndex: 0,
-		maxIter:       maxIter,
-		manager:       manager,
-		provider:      provider,
-		watcher:         watcher,
-		progressWatcher: progressWatcher,
-		progress:        progress,
-		viewMode:        ViewDashboard,
-		logViewer:     NewLogViewer(),
-		diffViewer:    NewDiffViewer(baseDir),
-		tabBar:        tabBar,
-		picker:        picker,
-		baseDir:       baseDir,
-		config:        cfg,
+		prd:              p,
+		prdPath:          prdPath,
+		prdName:          prdName,
+		state:            StateReady,
+		iteration:        0,
+		selectedIndex:    0,
+		maxIter:          maxIter,
+		manager:          manager,
+		provider:         provider,
+		watcher:          watcher,
+		progressWatcher:  progressWatcher,
+		progress:         progress,
+		viewMode:         ViewDashboard,
+		logViewer:        NewLogViewer(),
+		diffViewer:       NewDiffViewer(baseDir),
+		tabBar:           tabBar,
+		picker:           picker,
+		baseDir:          baseDir,
+		config:           cfg,
 		helpOverlay:      NewHelpOverlay(),
 		branchWarning:    NewBranchWarning(),
 		worktreeSpinner:  NewWorktreeSpinner(),
 		completionScreen: NewCompletionScreen(),
 		settingsOverlay:  NewSettingsOverlay(),
-		quitConfirm:     NewQuitConfirmation(),
+		quitConfirm:      NewQuitConfirmation(),
 	}, nil
 }
 
