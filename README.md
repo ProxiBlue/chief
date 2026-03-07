@@ -62,6 +62,8 @@ MIT
 
 ## Acknowledgments
 
+- [@Simon-BEE](https://github.com/Simon-BEE) — Multi-agent architecture and Codex CLI integration
+- [@tpaulshippy](https://github.com/tpaulshippy) — OpenCode CLI support and NDJSON parser
 - [snarktank/ralph](https://github.com/snarktank/ralph) — The original Ralph implementation that inspired this project
 - [Geoffrey Huntley](https://ghuntley.com/ralph/) — For coining the "Ralph Wiggum loop" pattern
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) — TUI framework
