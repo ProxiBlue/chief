@@ -11,9 +11,9 @@ import (
 // newTestApp creates a minimal App for testing scroll and rendering.
 func newTestApp(stories []prd.UserStory, width, height int) *App {
 	return &App{
-		prd:     &prd.PRD{UserStories: stories},
-		width:   width,
-		height:  height,
+		prd:      &prd.PRD{UserStories: stories},
+		width:    width,
+		height:   height,
 		viewMode: ViewDashboard,
 	}
 }

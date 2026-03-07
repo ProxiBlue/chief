@@ -8,9 +8,11 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/minicodemonkey/chief/internal/agent"
 	"github.com/minicodemonkey/chief/internal/cmd"
 	"github.com/minicodemonkey/chief/internal/config"
 	"github.com/minicodemonkey/chief/internal/git"
+	"github.com/minicodemonkey/chief/internal/loop"
 	"github.com/minicodemonkey/chief/internal/prd"
 	"github.com/minicodemonkey/chief/internal/tui"
 )
@@ -26,6 +28,8 @@ type TUIOptions struct {
 	Merge         bool
 	Force         bool
 	NoRetry       bool
+	Agent         string // --agent claude|codex
+	AgentPath     string // --agent-path
 }
 
 func main() {
@@ -118,6 +122,40 @@ func listAvailablePRDs() []string {
 	return names
 }
 
+// parseAgentFlags extracts --agent and --agent-path from args[startIdx:],
+// returning the agent name, agent path, remaining args (with agent flags removed),
+// and the updated index offsets. It exits on missing values.
+func parseAgentFlags(args []string, startIdx int) (agentName, agentPath string, remaining []string) {
+	for i := startIdx; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--agent":
+			if i+1 < len(args) {
+				i++
+				agentName = args[i]
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: --agent requires a value (claude, codex, or opencode)\n")
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--agent="):
+			agentName = strings.TrimPrefix(arg, "--agent=")
+		case arg == "--agent-path":
+			if i+1 < len(args) {
+				i++
+				agentPath = args[i]
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: --agent-path requires a value\n")
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--agent-path="):
+			agentPath = strings.TrimPrefix(arg, "--agent-path=")
+		default:
+			remaining = append(remaining, arg)
+		}
+	}
+	return
+}
+
 // parseTUIFlags parses command-line flags for TUI mode
 func parseTUIFlags() *TUIOptions {
 	opts := &TUIOptions{
@@ -128,6 +166,9 @@ func parseTUIFlags() *TUIOptions {
 		Force:         false,
 		NoRetry:       false,
 	}
+
+	// Pre-extract agent flags so they don't interfere with positional arg parsing
+	opts.Agent, opts.AgentPath, _ = parseAgentFlags(os.Args, 1)
 
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
@@ -147,6 +188,10 @@ func parseTUIFlags() *TUIOptions {
 			opts.Force = true
 		case arg == "--no-retry":
 			opts.NoRetry = true
+		case arg == "--agent" || arg == "--agent-path":
+			i++ // skip value (already parsed by parseAgentFlags)
+		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--agent-path="):
+			// already parsed by parseAgentFlags
 		case arg == "--max-iterations" || arg == "-n":
 			// Next argument should be the number
 			if i+1 < len(os.Args) {
@@ -211,14 +256,23 @@ func parseTUIFlags() *TUIOptions {
 func runNew() {
 	opts := cmd.NewOptions{}
 
-	// Parse arguments: chief new [name] [context...]
-	if len(os.Args) > 2 {
-		opts.Name = os.Args[2]
+	// Parse arguments: chief new [name] [context...] [--agent X] [--agent-path X]
+	flagAgent, flagPath, positional := parseAgentFlags(os.Args, 2)
+	// Filter out remaining flags, keep only positional args
+	var args []string
+	for _, a := range positional {
+		if !strings.HasPrefix(a, "-") {
+			args = append(args, a)
+		}
 	}
-	if len(os.Args) > 3 {
-		opts.Context = strings.Join(os.Args[3:], " ")
+	if len(args) > 0 {
+		opts.Name = args[0]
+	}
+	if len(args) > 1 {
+		opts.Context = strings.Join(args[1:], " ")
 	}
 
+	opts.Provider = resolveProvider(flagAgent, flagPath)
 	if err := cmd.RunNew(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -228,22 +282,22 @@ func runNew() {
 func runEdit() {
 	opts := cmd.EditOptions{}
 
-	// Parse arguments: chief edit [name] [--merge] [--force]
-	for i := 2; i < len(os.Args); i++ {
-		arg := os.Args[i]
-		switch arg {
-		case "--merge":
+	// Parse arguments: chief edit [name] [--merge] [--force] [--agent X] [--agent-path X]
+	flagAgent, flagPath, remaining := parseAgentFlags(os.Args, 2)
+	for _, arg := range remaining {
+		switch {
+		case arg == "--merge":
 			opts.Merge = true
-		case "--force":
+		case arg == "--force":
 			opts.Force = true
 		default:
-			// If not a flag, treat as PRD name (first non-flag arg)
 			if opts.Name == "" && !strings.HasPrefix(arg, "-") {
 				opts.Name = arg
 			}
 		}
 	}
 
+	opts.Provider = resolveProvider(flagAgent, flagPath)
 	if err := cmd.RunEdit(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -282,7 +336,33 @@ func runList() {
 	}
 }
 
+// resolveProvider loads config and resolves the agent provider, exiting on error.
+func resolveProvider(flagAgent, flagPath string) loop.Provider {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	cfg, err := config.Load(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to load .chief/config.yaml: %v\n", err)
+		os.Exit(1)
+	}
+	provider, err := agent.Resolve(flagAgent, flagPath, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := agent.CheckInstalled(provider); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	return provider
+}
+
 func runTUIWithOptions(opts *TUIOptions) {
+	provider := resolveProvider(opts.Agent, opts.AgentPath)
+
 	prdPath := opts.PRDPath
 
 	// If no PRD specified, try to find one
@@ -322,7 +402,8 @@ func runTUIWithOptions(opts *TUIOptions) {
 
 			// Create the PRD
 			newOpts := cmd.NewOptions{
-				Name: result.PRDName,
+				Name:     result.PRDName,
+				Provider: provider,
 			}
 			if err := cmd.RunNew(newOpts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -344,19 +425,19 @@ func runTUIWithOptions(opts *TUIOptions) {
 		fmt.Printf("Warning: failed to check conversion status: %v\n", err)
 	} else if needsConvert {
 		fmt.Println("prd.md is newer than prd.json, running conversion...")
-		convertOpts := prd.ConvertOptions{
-			PRDDir: prdDir,
-			Merge:  opts.Merge,
-			Force:  opts.Force,
-		}
-		if err := prd.Convert(convertOpts); err != nil {
+		if err := cmd.RunConvertWithOptions(cmd.ConvertOptions{
+			PRDDir:   prdDir,
+			Merge:    opts.Merge,
+			Force:    opts.Force,
+			Provider: provider,
+		}); err != nil {
 			fmt.Printf("Error converting PRD: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Println("Conversion complete.")
 	}
 
-	app, err := tui.NewAppWithOptions(prdPath, opts.MaxIterations)
+	app, err := tui.NewAppWithOptions(prdPath, opts.MaxIterations, provider)
 	if err != nil {
 		// Check if this is a missing PRD file error
 		if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
@@ -403,7 +484,8 @@ func runTUIWithOptions(opts *TUIOptions) {
 		case tui.PostExitInit:
 			// Run new command then restart TUI
 			newOpts := cmd.NewOptions{
-				Name: finalApp.PostExitPRD,
+				Name:     finalApp.PostExitPRD,
+				Provider: provider,
 			}
 			if err := cmd.RunNew(newOpts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -416,9 +498,10 @@ func runTUIWithOptions(opts *TUIOptions) {
 		case tui.PostExitEdit:
 			// Run edit command then restart TUI
 			editOpts := cmd.EditOptions{
-				Name:  finalApp.PostExitPRD,
-				Merge: opts.Merge,
-				Force: opts.Force,
+				Name:     finalApp.PostExitPRD,
+				Merge:    opts.Merge,
+				Force:    opts.Force,
+				Provider: provider,
 			}
 			if err := cmd.RunEdit(editOpts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -447,9 +530,11 @@ Commands:
   help                      Show this help message
 
 Global Options:
+  --agent <provider>        Agent CLI to use: claude (default), codex, or opencode
+  --agent-path <path>       Custom path to agent CLI binary
   --max-iterations N, -n N  Set maximum iterations (default: dynamic)
-  --no-retry                Disable auto-retry on Claude crashes
-  --verbose                 Show raw Claude output in log
+  --no-retry                Disable auto-retry on agent crashes
+  --verbose                 Show raw agent output in log
   --merge                   Auto-merge progress on conversion conflicts
   --force                   Auto-overwrite on conversion conflicts
   --help, -h                Show this help message
@@ -470,7 +555,8 @@ Examples:
   chief -n 20               Launch with 20 max iterations
   chief --max-iterations=5 auth
                             Launch auth PRD with 5 max iterations
-  chief --verbose           Launch with raw Claude output visible
+  chief --verbose           Launch with raw agent output visible
+  chief --agent codex       Use Codex CLI instead of Claude
   chief new                 Create PRD in .chief/prds/main/
   chief new auth            Create PRD in .chief/prds/auth/
   chief new auth "JWT authentication for REST API"

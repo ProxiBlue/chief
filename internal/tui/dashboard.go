@@ -552,7 +552,11 @@ func (a *App) renderErrorPanel(width, height int) string {
 	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
 	content.WriteString("\n\n")
 	hintStyle := lipgloss.NewStyle().Foreground(WarningColor)
-	content.WriteString(hintStyle.Render("💡 Tip: Check claude.log in the PRD directory for full error details."))
+	logName := "claude.log"
+	if a.provider != nil {
+		logName = a.provider.LogFileName()
+	}
+	content.WriteString(hintStyle.Render(fmt.Sprintf("💡 Tip: Check %s in the PRD directory for full error details.", logName)))
 	content.WriteString("\n\n")
 
 	// Retry instructions

@@ -6,21 +6,22 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/minicodemonkey/chief/embed"
+	"github.com/minicodemonkey/chief/internal/loop"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
 // NewOptions contains configuration for the new command.
 type NewOptions struct {
-	Name    string // PRD name (default: "main")
-	Context string // Optional context to pass to Claude
-	BaseDir string // Base directory for .chief/prds/ (default: current directory)
+	Name     string        // PRD name (default: "main")
+	Context  string        // Optional context to pass to the agent
+	BaseDir  string        // Base directory for .chief/prds/ (default: current directory)
+	Provider loop.Provider // Agent CLI provider (Claude or Codex)
 }
 
-// RunNew creates a new PRD by launching an interactive Claude session.
+// RunNew creates a new PRD by launching an interactive agent session.
 func RunNew(opts NewOptions) error {
 	// Set defaults
 	if opts.Name == "" {
@@ -53,14 +54,17 @@ func RunNew(opts NewOptions) error {
 
 	// Get the init prompt with the PRD directory path
 	prompt := embed.GetInitPrompt(prdDir, opts.Context)
+	if opts.Provider == nil {
+		return fmt.Errorf("new command requires Provider to be set")
+	}
 
-	// Launch interactive Claude session
+	// Launch interactive agent session
 	fmt.Printf("Creating PRD in %s...\n", prdDir)
-	fmt.Println("Launching Claude to help you create your PRD...")
+	fmt.Printf("Launching %s to help you create your PRD...\n", opts.Provider.Name())
 	fmt.Println()
 
-	if err := runInteractiveClaude(opts.BaseDir, prompt); err != nil {
-		return fmt.Errorf("Claude session failed: %w", err)
+	if err := runInteractiveAgent(opts.Provider, opts.BaseDir, prompt); err != nil {
+		return fmt.Errorf("%s session failed: %w", opts.Provider.Name(), err)
 	}
 
 	// Check if prd.md was created
@@ -74,7 +78,7 @@ func RunNew(opts NewOptions) error {
 	fmt.Println("\nPRD created successfully!")
 
 	// Run conversion from prd.md to prd.json
-	if err := RunConvert(prdDir); err != nil {
+	if err := RunConvertWithOptions(ConvertOptions{PRDDir: prdDir, Provider: opts.Provider}); err != nil {
 		return fmt.Errorf("conversion failed: %w", err)
 	}
 
@@ -82,37 +86,55 @@ func RunNew(opts NewOptions) error {
 	return nil
 }
 
-// runInteractiveClaude launches an interactive Claude session in the specified directory.
-func runInteractiveClaude(workDir, prompt string) error {
-	// Pass prompt as argument (not -p which is print mode / non-interactive)
-	cmd := exec.Command("claude", prompt)
-	cmd.Dir = workDir
+// runInteractiveAgent launches an interactive agent session in the specified directory.
+func runInteractiveAgent(provider loop.Provider, workDir, prompt string) error {
+	if provider == nil {
+		return fmt.Errorf("interactive agent requires Provider to be set")
+	}
+	cmd := provider.InteractiveCommand(workDir, prompt)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
 	return cmd.Run()
 }
 
 // ConvertOptions contains configuration for the conversion command.
 type ConvertOptions struct {
-	PRDDir string // PRD directory containing prd.md
-	Merge  bool   // Auto-merge without prompting on conversion conflicts
-	Force  bool   // Auto-overwrite without prompting on conversion conflicts
+	PRDDir   string        // PRD directory containing prd.md
+	Merge    bool          // Auto-merge without prompting on conversion conflicts
+	Force    bool          // Auto-overwrite without prompting on conversion conflicts
+	Provider loop.Provider // Agent CLI provider for conversion
 }
 
-// RunConvert converts prd.md to prd.json using Claude.
-func RunConvert(prdDir string) error {
-	return RunConvertWithOptions(ConvertOptions{PRDDir: prdDir})
+// RunConvert converts prd.md to prd.json using the given agent provider.
+func RunConvert(prdDir string, provider loop.Provider) error {
+	return RunConvertWithOptions(ConvertOptions{PRDDir: prdDir, Provider: provider})
 }
 
-// RunConvertWithOptions converts prd.md to prd.json using Claude with options.
-// The Merge and Force flags will be fully implemented in US-019.
+// RunConvertWithOptions converts prd.md to prd.json using the configured agent with options.
 func RunConvertWithOptions(opts ConvertOptions) error {
+	if opts.Provider == nil {
+		return fmt.Errorf("conversion requires Provider to be set")
+	}
+	provider := opts.Provider
 	return prd.Convert(prd.ConvertOptions{
 		PRDDir: opts.PRDDir,
 		Merge:  opts.Merge,
 		Force:  opts.Force,
+		RunConversion: func(absPRDDir, idPrefix string) (string, error) {
+			raw, err := runConversionWithProvider(provider, absPRDDir)
+			if err != nil {
+				return "", err
+			}
+			return provider.CleanOutput(raw), nil
+		},
+		RunFixJSON: func(prompt string) (string, error) {
+			raw, err := runFixJSONWithProvider(provider, prompt)
+			if err != nil {
+				return "", err
+			}
+			return provider.CleanOutput(raw), nil
+		},
 	})
 }
 

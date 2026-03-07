@@ -66,12 +66,13 @@ type ManagerEvent struct {
 
 // Manager manages multiple Loop instances for parallel PRD execution.
 type Manager struct {
-	instances   map[string]*LoopInstance
-	events      chan ManagerEvent
-	maxIter     int
-	retryConfig RetryConfig
-	baseDir        string                               // Project root directory (for CLAUDE.md etc.)
-	config         *config.Config                       // Project config for post-completion actions
+	instances      map[string]*LoopInstance
+	events         chan ManagerEvent
+	maxIter        int
+	retryConfig    RetryConfig
+	provider       Provider
+	baseDir        string         // Project root directory (for CLAUDE.md etc.)
+	config         *config.Config // Project config for post-completion actions
 	mu             sync.RWMutex
 	wg             sync.WaitGroup
 	onComplete     func(prdName string)                  // Callback when a PRD completes
@@ -79,12 +80,13 @@ type Manager struct {
 }
 
 // NewManager creates a new loop manager.
-func NewManager(maxIter int) *Manager {
+func NewManager(maxIter int, provider Provider) *Manager {
 	return &Manager{
 		instances:   make(map[string]*LoopInstance),
 		events:      make(chan ManagerEvent, 100),
 		maxIter:     maxIter,
 		retryConfig: DefaultRetryConfig(),
+		provider:    provider,
 	}
 }
 
@@ -207,6 +209,10 @@ func (m *Manager) Unregister(name string) error {
 
 // Start starts the loop for a specific PRD.
 func (m *Manager) Start(name string) error {
+	if m.provider == nil {
+		return fmt.Errorf("manager provider is not configured")
+	}
+
 	m.mu.Lock()
 	instance, exists := m.instances[name]
 	m.mu.Unlock()
@@ -230,7 +236,7 @@ func (m *Manager) Start(name string) error {
 		workDir = m.baseDir
 		m.mu.RUnlock()
 	}
-	instance.Loop = NewLoopWithWorkDir(instance.PRDPath, workDir, "", m.maxIter)
+	instance.Loop = NewLoopWithWorkDir(instance.PRDPath, workDir, "", m.maxIter, m.provider)
 	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
 	m.mu.RLock()
 	instance.Loop.SetRetryConfig(m.retryConfig)

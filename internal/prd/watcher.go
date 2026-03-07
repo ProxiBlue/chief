@@ -15,13 +15,13 @@ type WatcherEvent struct {
 
 // Watcher watches a prd.json file for changes and sends events.
 type Watcher struct {
-	path     string
-	watcher  *fsnotify.Watcher
-	events   chan WatcherEvent
-	done     chan struct{}
-	mu       sync.Mutex
-	running  bool
-	lastPRD  *PRD
+	path    string
+	watcher *fsnotify.Watcher
+	events  chan WatcherEvent
+	done    chan struct{}
+	mu      sync.Mutex
+	running bool
+	lastPRD *PRD
 }
 
 // NewWatcher creates a new Watcher for the given PRD file path.

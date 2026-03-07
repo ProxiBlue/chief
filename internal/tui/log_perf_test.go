@@ -85,10 +85,10 @@ func TestTotalLineCount_AccurateAcrossEventTypes(t *testing.T) {
 	lv.SetSize(100, 30)
 
 	// Add diverse events
-	lv.AddEvent(makeStoryEvent("US-1"))       // 5 lines (blank, divider, title, divider, blank)
+	lv.AddEvent(makeStoryEvent("US-1"))                                                      // 5 lines (blank, divider, title, divider, blank)
 	lv.AddEvent(makeToolStartEvent("Read", map[string]interface{}{"file_path": "/test.go"})) // 1 line
-	lv.AddEvent(makeToolResultEvent("some output"))                                            // 1 line
-	lv.AddEvent(makeTextEvent("Hello"))                                                        // 1 line
+	lv.AddEvent(makeToolResultEvent("some output"))                                          // 1 line
+	lv.AddEvent(makeTextEvent("Hello"))                                                      // 1 line
 
 	// Count actual cached lines
 	actualTotal := 0

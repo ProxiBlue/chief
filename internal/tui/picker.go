@@ -47,10 +47,10 @@ const (
 
 // CleanConfirmation holds the state of the clean confirmation dialog.
 type CleanConfirmation struct {
-	EntryName    string // Name of the PRD being cleaned
-	Branch       string // Branch name to display
-	WorktreeDir  string // Worktree path to display
-	SelectedIdx  int    // Selected option index (0-2)
+	EntryName   string // Name of the PRD being cleaned
+	Branch      string // Branch name to display
+	WorktreeDir string // Worktree path to display
+	SelectedIdx int    // Selected option index (0-2)
 }
 
 // CleanResult holds the result of a clean operation for display.
@@ -61,18 +61,18 @@ type CleanResult struct {
 
 // PRDPicker manages the PRD picker modal state.
 type PRDPicker struct {
-	entries       []PRDEntry
-	selectedIndex int
-	width         int
-	height        int
-	basePath      string        // Base path where .chief/prds/ is located
-	currentPRD    string        // Name of the currently active PRD
-	inputMode     bool          // Whether we're in input mode for new PRD name
-	inputValue    string        // The current input value for new PRD name
-	manager            *loop.Manager      // Reference to the loop manager for status updates
-	mergeResult        *MergeResult       // Result of the last merge operation (nil = none)
-	cleanConfirmation  *CleanConfirmation // Active clean confirmation dialog (nil = none)
-	cleanResult        *CleanResult       // Result of the last clean operation (nil = none)
+	entries           []PRDEntry
+	selectedIndex     int
+	width             int
+	height            int
+	basePath          string             // Base path where .chief/prds/ is located
+	currentPRD        string             // Name of the currently active PRD
+	inputMode         bool               // Whether we're in input mode for new PRD name
+	inputValue        string             // The current input value for new PRD name
+	manager           *loop.Manager      // Reference to the loop manager for status updates
+	mergeResult       *MergeResult       // Result of the last merge operation (nil = none)
+	cleanConfirmation *CleanConfirmation // Active clean confirmation dialog (nil = none)
+	cleanResult       *CleanResult       // Result of the last clean operation (nil = none)
 }
 
 // NewPRDPicker creates a new PRD picker.

@@ -22,9 +22,9 @@ import (
 
 // RetryConfig configures automatic retry behavior on Claude crashes.
 type RetryConfig struct {
-	MaxRetries  int           // Maximum number of retry attempts (default: 3)
+	MaxRetries  int             // Maximum number of retry attempts (default: 3)
 	RetryDelays []time.Duration // Delays between retries (default: 0s, 5s, 15s)
-	Enabled     bool          // Whether retry is enabled (default: true)
+	Enabled     bool            // Whether retry is enabled (default: true)
 }
 
 // DefaultWatchdogTimeout is the default duration of silence before the watchdog kills a hung process.
@@ -39,31 +39,33 @@ func DefaultRetryConfig() RetryConfig {
 	}
 }
 
-// Loop manages the core agent loop that invokes Claude repeatedly until all stories are complete.
+// Loop manages the core agent loop that invokes the configured agent repeatedly until all stories are complete.
 type Loop struct {
-	prdPath      string
-	workDir      string
-	prompt       string
-	buildPrompt  func() (string, error) // optional: rebuild prompt each iteration
-	maxIter      int
-	iteration    int
-	events       chan Event
-	claudeCmd    *exec.Cmd
-	logFile      *os.File
-	mu               sync.Mutex
-	stopped          bool
-	paused           bool
-	retryConfig      RetryConfig
-	lastOutputTime   time.Time
-	watchdogTimeout  time.Duration
+	prdPath         string
+	workDir         string
+	prompt          string
+	buildPrompt     func() (string, error) // optional: rebuild prompt each iteration
+	maxIter         int
+	iteration       int
+	events          chan Event
+	provider        Provider
+	agentCmd        *exec.Cmd
+	logFile         *os.File
+	mu              sync.Mutex
+	stopped         bool
+	paused          bool
+	retryConfig     RetryConfig
+	lastOutputTime  time.Time
+	watchdogTimeout time.Duration
 }
 
 // NewLoop creates a new Loop instance.
-func NewLoop(prdPath, prompt string, maxIter int) *Loop {
+func NewLoop(prdPath, prompt string, maxIter int, provider Provider) *Loop {
 	return &Loop{
 		prdPath:         prdPath,
 		prompt:          prompt,
 		maxIter:         maxIter,
+		provider:        provider,
 		events:          make(chan Event, 100),
 		retryConfig:     DefaultRetryConfig(),
 		watchdogTimeout: DefaultWatchdogTimeout,
@@ -72,12 +74,13 @@ func NewLoop(prdPath, prompt string, maxIter int) *Loop {
 
 // NewLoopWithWorkDir creates a new Loop instance with a configurable working directory.
 // When workDir is empty, defaults to the project root for backward compatibility.
-func NewLoopWithWorkDir(prdPath, workDir string, prompt string, maxIter int) *Loop {
+func NewLoopWithWorkDir(prdPath, workDir string, prompt string, maxIter int, provider Provider) *Loop {
 	return &Loop{
 		prdPath:         prdPath,
 		workDir:         workDir,
 		prompt:          prompt,
 		maxIter:         maxIter,
+		provider:        provider,
 		events:          make(chan Event, 100),
 		retryConfig:     DefaultRetryConfig(),
 		watchdogTimeout: DefaultWatchdogTimeout,
@@ -86,8 +89,8 @@ func NewLoopWithWorkDir(prdPath, workDir string, prompt string, maxIter int) *Lo
 
 // NewLoopWithEmbeddedPrompt creates a new Loop instance using the embedded agent prompt.
 // The prompt is rebuilt on each iteration to inline the current story context.
-func NewLoopWithEmbeddedPrompt(prdPath string, maxIter int) *Loop {
-	l := NewLoop(prdPath, "", maxIter)
+func NewLoopWithEmbeddedPrompt(prdPath string, maxIter int, provider Provider) *Loop {
+	l := NewLoop(prdPath, "", maxIter, provider)
 	l.buildPrompt = promptBuilderForPRD(prdPath)
 	return l
 }
@@ -127,9 +130,13 @@ func (l *Loop) Iteration() int {
 
 // Run executes the agent loop until completion or max iterations.
 func (l *Loop) Run(ctx context.Context) error {
+	if l.provider == nil {
+		return fmt.Errorf("loop provider is not configured")
+	}
+
 	// Open log file in PRD directory
 	prdDir := filepath.Dir(l.prdPath)
-	logPath := filepath.Join(prdDir, "claude.log")
+	logPath := filepath.Join(prdDir, l.provider.LogFileName())
 	var err error
 	l.logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -256,7 +263,7 @@ func (l *Loop) runIterationWithRetry(ctx context.Context) error {
 				Iteration:  iter,
 				RetryCount: attempt,
 				RetryMax:   config.MaxRetries,
-				Text:       fmt.Sprintf("Claude crashed, retrying (%d/%d)...", attempt, config.MaxRetries),
+				Text:       fmt.Sprintf("%s crashed, retrying (%d/%d)...", l.provider.Name(), attempt, config.MaxRetries),
 			}
 
 			// Wait before retry
@@ -302,37 +309,31 @@ func (l *Loop) runIterationWithRetry(ctx context.Context) error {
 	return fmt.Errorf("max retries (%d) exceeded: %w", config.MaxRetries, lastErr)
 }
 
-// runIteration spawns Claude and processes its output.
+// runIteration spawns the agent and processes its output.
 func (l *Loop) runIteration(ctx context.Context) error {
-	// Build Claude command with required flags
+	workDir := l.effectiveWorkDir()
+	cmd := l.provider.LoopCommand(ctx, l.prompt, workDir)
 	l.mu.Lock()
-	l.claudeCmd = exec.CommandContext(ctx, "claude",
-		"--dangerously-skip-permissions",
-		"-p", l.prompt,
-		"--output-format", "stream-json",
-		"--verbose",
-	)
-	// Set working directory: use workDir if configured, otherwise default to PRD directory
-	l.claudeCmd.Dir = l.effectiveWorkDir()
+	l.agentCmd = cmd
 	// Initialize watchdog state
 	l.lastOutputTime = time.Now()
 	watchdogTimeout := l.watchdogTimeout
 	l.mu.Unlock()
 
 	// Create pipes for stdout and stderr
-	stdout, err := l.claudeCmd.StdoutPipe()
+	stdout, err := l.agentCmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
-	stderr, err := l.claudeCmd.StderrPipe()
+	stderr, err := l.agentCmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
 	// Start the command
-	if err := l.claudeCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start Claude: %w", err)
+	if err := l.agentCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start %s: %w", l.provider.Name(), err)
 	}
 
 	// Start watchdog goroutine to detect hung processes
@@ -364,7 +365,7 @@ func (l *Loop) runIteration(ctx context.Context) error {
 	close(watchdogDone)
 
 	// Wait for the command to finish
-	if err := l.claudeCmd.Wait(); err != nil {
+	if err := l.agentCmd.Wait(); err != nil {
 		// If the context was cancelled, don't treat it as an error
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -380,11 +381,11 @@ func (l *Loop) runIteration(ctx context.Context) error {
 		if watchdogFired.Load() {
 			return fmt.Errorf("watchdog timeout: no output for %s", watchdogTimeout)
 		}
-		return fmt.Errorf("Claude exited with error: %w", err)
+		return fmt.Errorf("%s exited with error: %w", l.provider.Name(), err)
 	}
 
 	l.mu.Lock()
-	l.claudeCmd = nil
+	l.agentCmd = nil
 	l.mu.Unlock()
 
 	return nil
@@ -431,8 +432,8 @@ func (l *Loop) runWatchdog(timeout time.Duration, done <-chan struct{}, fired *a
 
 				// Kill the process
 				l.mu.Lock()
-				if l.claudeCmd != nil && l.claudeCmd.Process != nil {
-					l.claudeCmd.Process.Kill()
+				if l.agentCmd != nil && l.agentCmd.Process != nil {
+					l.agentCmd.Process.Kill()
 				}
 				l.mu.Unlock()
 				return
@@ -462,7 +463,7 @@ func (l *Loop) processOutput(r io.Reader) {
 		l.logLine(line)
 
 		// Parse the line and emit event if valid
-		if event := ParseLine(line); event != nil {
+		if event := l.provider.ParseLine(line); event != nil {
 			l.mu.Lock()
 			event.Iteration = l.iteration
 			l.mu.Unlock()
@@ -486,16 +487,15 @@ func (l *Loop) logLine(line string) {
 	}
 }
 
-// Stop terminates the current Claude process and stops the loop.
+// Stop terminates the current agent process and stops the loop.
 func (l *Loop) Stop() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	l.stopped = true
 
-	if l.claudeCmd != nil && l.claudeCmd.Process != nil {
-		// Kill the process
-		l.claudeCmd.Process.Kill()
+	if l.agentCmd != nil && l.agentCmd.Process != nil {
+		l.agentCmd.Process.Kill()
 	}
 }
 
@@ -527,7 +527,7 @@ func (l *Loop) IsStopped() bool {
 	return l.stopped
 }
 
-// effectiveWorkDir returns the working directory to use for Claude.
+// effectiveWorkDir returns the working directory to use for the agent.
 // If workDir is set, it is used directly. Otherwise, defaults to the PRD directory.
 func (l *Loop) effectiveWorkDir() string {
 	if l.workDir != "" {
@@ -536,11 +536,11 @@ func (l *Loop) effectiveWorkDir() string {
 	return filepath.Dir(l.prdPath)
 }
 
-// IsRunning returns whether a Claude process is currently running.
+// IsRunning returns whether an agent process is currently running.
 func (l *Loop) IsRunning() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.claudeCmd != nil && l.claudeCmd.Process != nil
+	return l.agentCmd != nil && l.agentCmd.Process != nil
 }
 
 // SetMaxIterations updates the maximum iterations limit.
