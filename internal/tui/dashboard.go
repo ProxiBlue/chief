@@ -523,7 +523,15 @@ func (a *App) renderDetailsPanel(width, height int) string {
 		}
 	}
 
-	return panelStyle.Width(width).Height(height).Render(content.String())
+	// Truncate content to fit panel height (lipgloss Height only sets minimum, not maximum)
+	contentStr := content.String()
+	contentLines := strings.Split(contentStr, "\n")
+	if len(contentLines) > height {
+		contentLines = contentLines[:height]
+		contentStr = strings.Join(contentLines, "\n")
+	}
+
+	return panelStyle.Width(width).Height(height).Render(contentStr)
 }
 
 // renderErrorPanel renders the error details panel when in error state.
