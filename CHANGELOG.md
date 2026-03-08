@@ -2,6 +2,17 @@
 
 All notable changes to Chief are documented in this file.
 
+## [0.7.0] - 2026-03-08
+
+### Features
+- **Pluggable agent backend** — in addition to Claude Code, Chief now supports OpenCode and Codex as agent CLIs thanks to @Simon-BEE and @tpaulshippy
+- PRD robustness: handle large PRDs exceeding token limits, prevent merge/edit from truncating JSON, stable task IDs across PRD regeneration, watchdog for hung agents with no output, fix partially created PRD directories causing UI bugs, fix `.chief/` files committed despite gitignore
+- Scrollable TUI task list with proper label wrapping
+
+### Refactoring
+- Deduplicate flag parsing and convert helpers with improved test coverage
+- Inline story ID and title into commit message template
+
 ## [0.6.1] - 2026-02-24
 
 ### Bug Fixes
@@ -127,6 +138,10 @@ Initial release.
 - CLI commands: `chief new`, `chief edit`, `chief status`, `chief list`
 - Homebrew formula and install script
 
+[0.7.0]: https://github.com/MiniCodeMonkey/chief/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/MiniCodeMonkey/chief/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/MiniCodeMonkey/chief/compare/v0.5.4...v0.6.0
+[0.5.4]: https://github.com/MiniCodeMonkey/chief/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/MiniCodeMonkey/chief/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/MiniCodeMonkey/chief/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/MiniCodeMonkey/chief/compare/v0.5.0...v0.5.1
