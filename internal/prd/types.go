@@ -15,7 +15,7 @@ type UserStory struct {
 	Title              string   `json:"title"`
 	Description        string   `json:"description"`
 	AcceptanceCriteria []string `json:"acceptanceCriteria"`
-	Priority           int      `json:"priority"`
+	Priority           float64  `json:"priority"`
 	Passes             bool     `json:"passes"`
 	InProgress         bool     `json:"inProgress,omitempty"`
 }

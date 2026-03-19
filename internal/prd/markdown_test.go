@@ -66,7 +66,7 @@ Some prose description here.
 		t.Error("s1.InProgress = true, want false")
 	}
 	if s1.Priority != 1 {
-		t.Errorf("s1.Priority = %d, want 1", s1.Priority)
+		t.Errorf("s1.Priority = %g, want 1", s1.Priority)
 	}
 	if len(s1.AcceptanceCriteria) != 2 {
 		t.Errorf("len(s1.AcceptanceCriteria) = %d, want 2", len(s1.AcceptanceCriteria))
@@ -143,7 +143,7 @@ func TestParseMarkdownPRDFromString_MissingFields(t *testing.T) {
 		t.Errorf("ID = %q", s.ID)
 	}
 	if s.Priority != 1 {
-		t.Errorf("Priority = %d, want 1 (auto-assigned)", s.Priority)
+		t.Errorf("Priority = %g, want 1 (auto-assigned)", s.Priority)
 	}
 	if s.Passes || s.InProgress {
 		t.Error("should be pending")
@@ -368,14 +368,47 @@ func TestParseMarkdownPRDFromString_AutoPriority(t *testing.T) {
 	}
 	// First: auto-priority 1
 	if p.UserStories[0].Priority != 1 {
-		t.Errorf("s1.Priority = %d, want 1", p.UserStories[0].Priority)
+		t.Errorf("s1.Priority = %g, want 1", p.UserStories[0].Priority)
 	}
 	// Second: explicit priority 5
 	if p.UserStories[1].Priority != 5 {
-		t.Errorf("s2.Priority = %d, want 5", p.UserStories[1].Priority)
+		t.Errorf("s2.Priority = %g, want 5", p.UserStories[1].Priority)
 	}
 	// Third: auto-priority 6 (after 5)
 	if p.UserStories[2].Priority != 6 {
-		t.Errorf("s3.Priority = %d, want 6", p.UserStories[2].Priority)
+		t.Errorf("s3.Priority = %g, want 6", p.UserStories[2].Priority)
+	}
+}
+
+func TestParseMarkdownPRDFromString_FloatPriority(t *testing.T) {
+	md := `# P
+
+### US-001: First
+**Priority:** 0.1
+- [ ] A
+
+### US-002: Second
+**Priority:** 1.5
+- [ ] B
+
+### US-003: Third
+**Priority:** 2
+- [ ] C
+`
+	p, err := ParseMarkdownPRDFromString(md)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if len(p.UserStories) != 3 {
+		t.Fatalf("len = %d", len(p.UserStories))
+	}
+	if p.UserStories[0].Priority != 0.1 {
+		t.Errorf("s1.Priority = %g, want 0.1", p.UserStories[0].Priority)
+	}
+	if p.UserStories[1].Priority != 1.5 {
+		t.Errorf("s2.Priority = %g, want 1.5", p.UserStories[1].Priority)
+	}
+	if p.UserStories[2].Priority != 2 {
+		t.Errorf("s3.Priority = %g, want 2", p.UserStories[2].Priority)
 	}
 }

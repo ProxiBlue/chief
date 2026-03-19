@@ -490,7 +490,7 @@ func (a *App) renderDetailsPanel(width, height int) string {
 		statusText = "Pending"
 		statusStyle = statusPendingStyle
 	}
-	content.WriteString(fmt.Sprintf("%s %s  │  Priority: %d\n", statusIcon, statusStyle.Render(statusText), story.Priority))
+	content.WriteString(fmt.Sprintf("%s %s  │  Priority: %g\n", statusIcon, statusStyle.Render(statusText), story.Priority))
 	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
 	content.WriteString("\n\n")
 

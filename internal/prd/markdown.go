@@ -48,7 +48,7 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 	var current *storyBuilder
 	introStarted := false
 	introDone := false
-	autoPriority := 0
+	autoPriority := float64(0)
 
 	flushStory := func() {
 		if current == nil {
@@ -130,8 +130,8 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 			// **Priority:** line
 			if m := priorityLineRegex.FindStringSubmatch(trimmed); m != nil {
 				val := strings.TrimSpace(m[1])
-				var pri int
-				if _, err := fmt.Sscanf(val, "%d", &pri); err == nil && pri > 0 {
+				var pri float64
+				if _, err := fmt.Sscanf(val, "%g", &pri); err == nil && pri > 0 {
 					current.story.Priority = pri
 				}
 				continue
