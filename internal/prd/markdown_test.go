@@ -299,6 +299,53 @@ func TestParseMarkdownPRD_FileNotFound(t *testing.T) {
 	}
 }
 
+func TestParseMarkdownPRDFromString_H4StoryHeadings(t *testing.T) {
+	md := `# PRD: Phased Project
+
+## Phase 1: Foundation
+
+### Design System
+
+#### US-001: Setup Theme
+**Priority:** 1
+- [ ] Theme configured
+- [ ] Tokens defined
+
+#### US-002: Build Components
+- [ ] Components built
+
+## Phase 2: Features
+
+### Core Features
+
+#### US-003: Add Feature
+**Status:** done
+- [x] Feature works
+`
+	p, err := ParseMarkdownPRDFromString(md)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if p.Project != "Phased Project" {
+		t.Errorf("Project = %q, want %q", p.Project, "Phased Project")
+	}
+	if len(p.UserStories) != 3 {
+		t.Fatalf("len(UserStories) = %d, want 3", len(p.UserStories))
+	}
+	if p.UserStories[0].ID != "US-001" {
+		t.Errorf("s1.ID = %q", p.UserStories[0].ID)
+	}
+	if len(p.UserStories[0].AcceptanceCriteria) != 2 {
+		t.Errorf("s1 AC count = %d, want 2", len(p.UserStories[0].AcceptanceCriteria))
+	}
+	if p.UserStories[2].ID != "US-003" {
+		t.Errorf("s3.ID = %q", p.UserStories[2].ID)
+	}
+	if !p.UserStories[2].Passes {
+		t.Error("s3 should be done")
+	}
+}
+
 func TestParseMarkdownPRDFromString_AutoPriority(t *testing.T) {
 	md := `# P
 

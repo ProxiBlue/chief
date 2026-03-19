@@ -32,7 +32,7 @@ func setStoryStatusInString(content, storyID, status string) (string, error) {
 	storyStart := -1
 	storyEnd := len(lines) // default to end of file
 
-	headingPattern := regexp.MustCompile(`^###\s+` + regexp.QuoteMeta(storyID) + `:\s+`)
+	headingPattern := regexp.MustCompile(`^#{3,4}\s+` + regexp.QuoteMeta(storyID) + `:\s+`)
 
 	for i, line := range lines {
 		if storyStart == -1 {
@@ -43,7 +43,7 @@ func setStoryStatusInString(content, storyID, status string) (string, error) {
 		} else {
 			// Looking for the end of the story block (next ## or ### heading)
 			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "## ") || strings.HasPrefix(trimmed, "### ") {
+			if strings.HasPrefix(trimmed, "## ") || strings.HasPrefix(trimmed, "### ") || strings.HasPrefix(trimmed, "#### ") {
 				storyEnd = i
 				break
 			}

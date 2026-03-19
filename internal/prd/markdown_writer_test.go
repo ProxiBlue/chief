@@ -175,6 +175,33 @@ func TestSetStoryStatus_File(t *testing.T) {
 	}
 }
 
+func TestSetStoryStatusInString_H4Headings(t *testing.T) {
+	md := `# P
+
+## Phase 1
+
+#### US-001: First
+- [ ] A
+
+#### US-002: Second
+- [ ] B
+`
+	result, err := setStoryStatusInString(md, "US-001", "done")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if !strings.Contains(result, "**Status:** done") {
+		t.Error("expected **Status:** done")
+	}
+	if !strings.Contains(result, "- [x] A") {
+		t.Error("expected checkbox A to be checked")
+	}
+	// US-002 should be untouched
+	if !strings.Contains(result, "- [ ] B") {
+		t.Error("US-002 should be untouched")
+	}
+}
+
 func TestSetStoryStatusInString_NoCheckboxFlipForNonDone(t *testing.T) {
 	md := `# P
 

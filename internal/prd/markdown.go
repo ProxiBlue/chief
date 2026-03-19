@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// storyHeadingRegex matches story headings like "### US-001: Story Title"
-var storyHeadingRegex = regexp.MustCompile(`^###\s+([A-Za-z]+-\d+):\s+(.+)$`)
+// storyHeadingRegex matches story headings like "### US-001: Story Title" or "#### US-001: Story Title"
+var storyHeadingRegex = regexp.MustCompile(`^#{3,4}\s+([A-Za-z]+-\d+):\s+(.+)$`)
 
 // statusLineRegex matches "**Status:** value"
 var statusLineRegex = regexp.MustCompile(`^\*\*Status:\*\*\s*(.+)$`)
@@ -94,11 +94,11 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 			continue
 		}
 
-		// Check for ## heading (section boundary — ends current story block)
-		if strings.HasPrefix(line, "## ") {
+		// Check for ## or ### heading (section boundary — ends current story block)
+		if strings.HasPrefix(line, "## ") || strings.HasPrefix(line, "### ") {
 			flushStory()
 
-			heading := strings.TrimSpace(strings.TrimPrefix(trimmed, "##"))
+			heading := strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
 			if strings.EqualFold(heading, "Introduction") || strings.EqualFold(heading, "Overview") {
 				introStarted = true
 				introDone = false
