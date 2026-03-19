@@ -333,7 +333,7 @@ func TestPRD_NextStoryContext_PromptSizeUnder10KB(t *testing.T) {
 			Title:              fmt.Sprintf("Story %d with a reasonably long title for realism", i+1),
 			Description:        "This is a description that is moderately long to simulate realistic PRD content for testing purposes.",
 			AcceptanceCriteria: []string{"Criterion A", "Criterion B", "Criterion C"},
-			Priority:           i + 1,
+			Priority:           float64(i + 1),
 			Passes:             i > 0,
 		}
 	}
