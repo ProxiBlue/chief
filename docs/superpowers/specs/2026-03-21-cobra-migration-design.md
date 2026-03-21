@@ -56,9 +56,11 @@ var rootCmd = &cobra.Command{
 | `--merge` | bool | Auto-merge progress on conflicts |
 | `--force` | bool | Auto-overwrite on conflicts |
 
+Note: `--merge` and `--force` are also registered as local flags on the `edit` subcommand (the current help text advertises them for edit). The `edit` command handler will accept these flags even though `internal/cmd/edit.go` does not currently use them — this preserves backwards compatibility with scripts that may pass them.
+
 ### Version
 
-Handled via Cobra's built-in `rootCmd.Version = version`, supporting both `--version` and `-v`.
+Handled via Cobra's built-in `rootCmd.Version = version`, supporting `--version`. The `-v` shorthand for version is explicitly disabled to avoid conflict with a potential future `-v` shorthand for `--verbose`. `--verbose` has no short form.
 
 ### Environment Variable Fallbacks
 
@@ -69,11 +71,11 @@ Handled via Cobra's built-in `rootCmd.Version = version`, supporting both `--ver
 ### `new` — Create a new PRD
 
 ```
-chief new [name] [context]
-Args: cobra.MaximumNArgs(2)
+chief new [name] [context...]
+Args: cobra.ArbitraryArgs
 ```
 
-Extracts positional args, calls `cmd.RunNew()`.
+Uses `cobra.ArbitraryArgs` because the current CLI allows unquoted multi-word context: `chief new auth JWT authentication for REST API` joins all args after the first with spaces. The handler extracts `args[0]` as name and `strings.Join(args[1:], " ")` as context.
 
 ### `edit` — Edit an existing PRD
 
@@ -128,6 +130,28 @@ Registered inline in `root.go` with `Hidden: true`.
 - `internal/prd/` — PRD model and persistence
 - `internal/git/` — git utilities
 - `internal/update/` — self-update mechanism
+
+## Implementation Notes
+
+### `chief help` subcommand
+
+Cobra handles `chief help` and `chief help <command>` automatically — no custom registration needed.
+
+### `CheckVersionOnStartup`
+
+Called only in `runTUI` (not `PersistentPreRun`), preserving the current behavior of only checking for updates when launching the TUI.
+
+### Provider resolution
+
+A shared `resolveProvider(cmd)` helper in `root.go` reads the persistent flags and calls `agent.Resolve()`. Used by `runTUI`, `new`, and `edit` commands.
+
+### PRD path resolution
+
+The `runTUI` function in `root.go` carries the full PRD resolution and first-time-setup flow currently in `runTUIWithOptions()` — this function is migrated largely intact.
+
+### Flag validation
+
+`--max-iterations` is validated `>= 1` in a `PreRunE` on the root command, matching current behavior.
 
 ## Free Wins from Cobra
 
