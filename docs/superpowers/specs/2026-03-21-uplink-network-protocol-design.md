@@ -241,6 +241,55 @@ Opening the browser mid-run shows cached status/progress instantly and begins re
 - If the browser can't keep up (slow mobile connection), Reverb handles buffering at the channel level
 - If the device WebSocket backs up, chief skips output frames rather than blocking Claude — Claude's execution is never gated on the relay
 
+## PRD Chat Sessions (Claude Code Integration)
+
+### How PRD Chat Works Over Uplink
+
+PRD creation and editing use Claude Code's `--resume` flag to maintain multi-turn conversations with structured NDJSON output. No PTY or terminal parsing needed.
+
+**First message (create PRD):**
+```
+claude --print --output-format stream-json --verbose \
+  --dangerously-skip-permissions \
+  -p "<init_prompt + user message>" \
+  --dir <project_dir>
+```
+
+**Subsequent messages (continue conversation):**
+```
+claude --print --output-format stream-json --verbose \
+  --dangerously-skip-permissions \
+  --resume <session_id> \
+  -p "<user message>"
+```
+
+### Session Flow
+
+1. Browser sends `cmd.prd.create` with the user's first message
+2. Chief spawns Claude Code with the init prompt + user message
+3. Chief parses NDJSON stdout using the same parser as Ralph loops
+4. As Claude responds, chief streams `state.prd.chat.output` (ephemeral) to the server for live display
+5. When Claude finishes its turn, chief captures the `session_id` from the `result` event
+6. Chief sends `state.prd.updated` with the updated chat history and the `session_id`
+7. For each subsequent `cmd.prd.message`, chief runs `claude --resume <session_id>` with the new message
+8. Claude maintains full conversation context through its own session persistence
+
+### State Storage
+
+- **Chief machine:** Claude Code stores session data internally (used by `--resume`)
+- **Chief tracking:** Session ID stored alongside PRD metadata
+- **Server DB:** Full chat history stored (encrypted) in the `prds.chat_history` column
+- **Browser:** Reads chat history from server cache on page load; receives live streaming via Reverb
+
+### Why Not PTY
+
+The previous implementation (`feat/uplink2`) used `creack/pty` to run Claude in a persistent terminal session. This caused bugs from ANSI escape code parsing and required complex session lifecycle management. The `--resume` approach:
+
+- Uses the same NDJSON parser as Ralph loops (proven, tested)
+- Each turn is a clean process invocation (no zombie processes, no session timeouts)
+- ~500ms-1s startup overhead per turn, imperceptible against API response time
+- No terminal output parsing, no ANSI codes, fully structured events
+
 ## Contract Testing
 
 The protocol is defined once and both sides validate against it.
