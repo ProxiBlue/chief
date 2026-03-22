@@ -1,5 +1,79 @@
 package protocol
 
+import "encoding/json"
+
+// Shared domain types used across state and command payloads.
+
+// Project represents a tracked project.
+type Project struct {
+	ID        string `json:"id"`
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	GitRemote string `json:"git_remote,omitempty"`
+	GitBranch string `json:"git_branch,omitempty"`
+	GitSHA    string `json:"git_sha,omitempty"`
+}
+
+// PRD represents a Product Requirements Document.
+type PRD struct {
+	ID          string            `json:"id"`
+	ProjectID   string            `json:"project_id"`
+	Title       string            `json:"title"`
+	Status      string            `json:"status"`
+	Content     string            `json:"content,omitempty"`
+	Progress    string            `json:"progress,omitempty"`
+	ChatHistory []json.RawMessage `json:"chat_history,omitempty"`
+	SessionID   string            `json:"session_id,omitempty"`
+}
+
+// Run represents a single execution run of a PRD story or task.
+type Run struct {
+	ID         string `json:"id"`
+	PRDID      string `json:"prd_id"`
+	Status     string `json:"status"`
+	Result     string `json:"result,omitempty"`
+	Error      string `json:"error,omitempty"`
+	StartedAt  string `json:"started_at,omitempty"`
+	FinishedAt string `json:"finished_at,omitempty"`
+}
+
+// DiffEntry represents a single file diff.
+type DiffEntry struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
+	Patch  string `json:"patch,omitempty"`
+}
+
+// FileEntry represents a file or directory in a listing.
+type FileEntry struct {
+	Name  string `json:"name"`
+	IsDir bool   `json:"is_dir"`
+	Size  *int   `json:"size,omitempty"`
+}
+
+// LogEntry represents a single log entry in a log response.
+type LogEntry struct {
+	Timestamp string `json:"timestamp"`
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+}
+
+// DeviceInfo holds metadata about a connected device.
+type DeviceInfo struct {
+	DeviceID  string `json:"device_id"`
+	Name      string `json:"name,omitempty"`
+	Platform  string `json:"platform,omitempty"`
+	Version   string `json:"version,omitempty"`
+}
+
+// GitCommit represents a git commit reference.
+type GitCommit struct {
+	SHA     string `json:"sha"`
+	Message string `json:"message,omitempty"`
+	Author  string `json:"author,omitempty"`
+	Date    string `json:"date,omitempty"`
+}
+
 // Message type constants for all protocol message types.
 const (
 	// Control messages
