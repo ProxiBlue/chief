@@ -1,0 +1,8 @@
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "path": "/home/user/projects/my-app",
+  "name": "my-app",
+  "git_remote": "git@github.com:user/my-app.git",
+  "git_branch": "main",
+  "git_sha": "abc123def456"
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "types/prd.json",
+  "title": "PRD",
+  "description": "A Product Requirements Document managed by the system",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique PRD identifier"
+    },
+    "project_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "ID of the parent project"
+    },
+    "title": {
+      "type": "string",
+      "description": "PRD title"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "active", "paused", "completed", "archived"],
+      "description": "Current PRD status"
+    },
+    "content": {
+      "type": "string",
+      "description": "Full PRD content or body text"
+    },
+    "progress": {
+      "type": "string",
+      "description": "Progress summary or notes"
+    },
+    "chat_history": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "Chat history associated with the PRD"
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Current active session identifier"
+    }
+  },
+  "required": ["id", "project_id", "title", "status"],
+  "additionalProperties": false
+}

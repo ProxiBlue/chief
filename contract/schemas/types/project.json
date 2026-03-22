@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "types/project.json",
+  "title": "Project",
+  "description": "A project tracked by the CLI agent",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique project identifier"
+    },
+    "path": {
+      "type": "string",
+      "description": "Absolute filesystem path to the project root"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable project name"
+    },
+    "git_remote": {
+      "type": "string",
+      "description": "Git remote URL"
+    },
+    "git_branch": {
+      "type": "string",
+      "description": "Current git branch"
+    },
+    "git_sha": {
+      "type": "string",
+      "description": "Current git commit SHA"
+    }
+  },
+  "required": ["id", "path", "name"],
+  "additionalProperties": false
+}
