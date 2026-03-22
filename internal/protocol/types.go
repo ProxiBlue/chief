@@ -6,12 +6,14 @@ import "encoding/json"
 
 // Project represents a tracked project.
 type Project struct {
-	ID        string `json:"id"`
-	Path      string `json:"path"`
-	Name      string `json:"name"`
-	GitRemote string `json:"git_remote,omitempty"`
-	GitBranch string `json:"git_branch,omitempty"`
-	GitSHA    string `json:"git_sha,omitempty"`
+	ID         string     `json:"id"`
+	Path       string     `json:"path"`
+	Name       string     `json:"name"`
+	GitRemote  string     `json:"git_remote,omitempty"`
+	GitBranch  string     `json:"git_branch,omitempty"`
+	GitSHA     string     `json:"git_sha,omitempty"`
+	GitStatus  string     `json:"git_status,omitempty"`
+	LastCommit *GitCommit `json:"last_commit,omitempty"`
 }
 
 // PRD represents a Product Requirements Document.

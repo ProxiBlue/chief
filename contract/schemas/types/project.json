@@ -29,6 +29,23 @@
     "git_sha": {
       "type": "string",
       "description": "Current git commit SHA"
+    },
+    "git_status": {
+      "type": "string",
+      "enum": ["clean", "dirty"],
+      "description": "Working tree status"
+    },
+    "last_commit": {
+      "type": "object",
+      "properties": {
+        "sha": { "type": "string" },
+        "message": { "type": "string" },
+        "author": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["sha"],
+      "additionalProperties": false,
+      "description": "Most recent git commit"
     }
   },
   "required": ["id", "path", "name"],

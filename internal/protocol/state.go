@@ -4,10 +4,11 @@ import "encoding/json"
 
 // StateSync is the payload for a "sync" state message.
 type StateSync struct {
-	Projects []Project        `json:"projects"`
-	PRDs     []PRD            `json:"prds"`
-	Runs     []Run            `json:"runs"`
-	Settings json.RawMessage  `json:"settings,omitempty"`
+	Device   *DeviceInfo     `json:"device,omitempty"`
+	Projects []Project       `json:"projects"`
+	PRDs     []PRD           `json:"prds"`
+	Runs     []Run           `json:"runs"`
+	Settings json.RawMessage `json:"settings,omitempty"`
 }
 
 // StateProjectsUpdated is the payload for a "projects-updated" state message.

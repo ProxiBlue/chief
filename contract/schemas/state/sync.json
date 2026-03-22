@@ -23,6 +23,18 @@
     "payload": {
       "type": "object",
       "properties": {
+        "device": {
+          "type": "object",
+          "properties": {
+            "device_id": { "type": "string" },
+            "name": { "type": "string" },
+            "platform": { "type": "string" },
+            "version": { "type": "string" }
+          },
+          "required": ["device_id"],
+          "additionalProperties": false,
+          "description": "Device metadata"
+        },
         "projects": {
           "type": "array",
           "items": {
