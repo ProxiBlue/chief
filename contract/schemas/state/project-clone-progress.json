@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state/project-clone-progress.json",
+  "title": "Project Clone Progress Message",
+  "description": "Progress update for an ongoing project clone operation",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "project-clone-progress"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ID of the project being cloned"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["cloning", "completed", "failed"],
+          "description": "Current clone status"
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable progress message"
+        },
+        "percentage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Clone progress percentage if available"
+        }
+      },
+      "required": ["project_id", "status", "message"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "id", "device_id", "timestamp", "payload"],
+  "additionalProperties": false
+}

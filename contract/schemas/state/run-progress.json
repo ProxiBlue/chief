@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state/run-progress.json",
+  "title": "Run Progress Message",
+  "description": "Progress update for an active run",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "run-progress"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ID of the run"
+        },
+        "prd_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ID of the parent PRD"
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable progress message"
+        },
+        "percentage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Progress percentage if available"
+        }
+      },
+      "required": ["run_id", "prd_id", "message"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "id", "device_id", "timestamp", "payload"],
+  "additionalProperties": false
+}

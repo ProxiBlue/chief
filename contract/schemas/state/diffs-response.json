@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state/diffs-response.json",
+  "title": "Diffs Response Message",
+  "description": "Response containing file diffs for a project or run",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "diffs-response"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ID of the project"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Git ref or commit SHA for the diff base"
+        },
+        "diffs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "File path relative to project root"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["added", "modified", "deleted", "renamed"],
+                "description": "Type of change"
+              },
+              "patch": {
+                "type": "string",
+                "description": "Unified diff patch content"
+              }
+            },
+            "required": ["path", "status"],
+            "additionalProperties": false
+          },
+          "description": "List of file diffs"
+        }
+      },
+      "required": ["project_id", "diffs"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "id", "device_id", "timestamp", "payload"],
+  "additionalProperties": false
+}

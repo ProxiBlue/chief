@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state/files-list.json",
+  "title": "Files List Message",
+  "description": "List of files in a project directory",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "files-list"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ID of the project"
+        },
+        "path": {
+          "type": "string",
+          "description": "Directory path relative to project root"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "File or directory name"
+              },
+              "is_dir": {
+                "type": "boolean",
+                "description": "Whether this entry is a directory"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "File size in bytes"
+              }
+            },
+            "required": ["name", "is_dir"],
+            "additionalProperties": false
+          },
+          "description": "List of file entries"
+        }
+      },
+      "required": ["project_id", "path", "files"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "id", "device_id", "timestamp", "payload"],
+  "additionalProperties": false
+}

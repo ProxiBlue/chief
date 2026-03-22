@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state/projects-updated.json",
+  "title": "Projects Updated Message",
+  "description": "Notification that the projects list has changed",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "projects-updated"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Updated list of all tracked projects"
+        }
+      },
+      "required": ["projects"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "id", "device_id", "timestamp", "payload"],
+  "additionalProperties": false
+}

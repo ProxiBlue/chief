@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state/log-output.json",
+  "title": "Log Output Message",
+  "description": "Real-time log output from the CLI agent",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "log-output"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "description": "Log level"
+        },
+        "message": {
+          "type": "string",
+          "description": "Log message"
+        },
+        "context": {
+          "type": "object",
+          "description": "Additional structured context"
+        }
+      },
+      "required": ["level", "message"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "id", "device_id", "timestamp", "payload"],
+  "additionalProperties": false
+}

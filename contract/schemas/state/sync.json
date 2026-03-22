@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state/sync.json",
+  "title": "Sync Message",
+  "description": "Full state synchronization from CLI to server",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "sync"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "List of all tracked projects"
+        },
+        "prds": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "List of all PRDs across projects"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "List of all active or recent runs"
+        },
+        "settings": {
+          "type": "object",
+          "description": "Current device settings"
+        }
+      },
+      "required": ["projects", "prds", "runs"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "id", "device_id", "timestamp", "payload"],
+  "additionalProperties": false
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state/file-response.json",
+  "title": "File Response Message",
+  "description": "Response containing the contents of a requested file",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "file-response"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ID of the project"
+        },
+        "path": {
+          "type": "string",
+          "description": "File path relative to project root"
+        },
+        "content": {
+          "type": "string",
+          "description": "File content"
+        },
+        "encoding": {
+          "type": "string",
+          "enum": ["utf-8", "base64"],
+          "description": "Content encoding"
+        }
+      },
+      "required": ["project_id", "path", "content", "encoding"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "id", "device_id", "timestamp", "payload"],
+  "additionalProperties": false
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state/device-heartbeat.json",
+  "title": "Device Heartbeat Message",
+  "description": "Periodic heartbeat from the CLI to indicate it is alive",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "device-heartbeat"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "uptime_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Device uptime in seconds"
+        },
+        "active_runs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of currently active runs"
+        }
+      },
+      "required": ["uptime_seconds", "active_runs"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "id", "device_id", "timestamp", "payload"],
+  "additionalProperties": false
+}

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state/log-response.json",
+  "title": "Log Response Message",
+  "description": "Response containing historical log entries",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "log-response"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ID of the run these logs belong to"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "level": {
+                "type": "string",
+                "enum": ["debug", "info", "warn", "error"]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["timestamp", "level", "message"],
+            "additionalProperties": false
+          },
+          "description": "Log entries"
+        }
+      },
+      "required": ["run_id", "entries"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "id", "device_id", "timestamp", "payload"],
+  "additionalProperties": false
+}
