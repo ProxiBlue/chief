@@ -73,6 +73,18 @@ evaluation:
   provider: ""          # LLM provider (defaults to main provider)
 ```
 
+### Architecture
+
+Evaluator agents are spawned as regular agent CLI subprocesses — the same CLI used for code generation (Claude Code, Codex, etc.). Each evaluator is a fresh, independent process that receives a one-shot prompt containing:
+
+- The story's acceptance criteria (as JSON)
+- The full git diff of the committed code (capped at 200KB)
+- Instructions to score each criterion on a 1-10 scale and output structured JSON
+
+Evaluators are allowed up to 3 tool calls (file reads, shell commands) to verify the implementation before scoring. N evaluators (default 3) run in parallel, then a deliberation round shows each evaluator the others' scores and asks them to challenge false positives, agree with legitimate findings, and surface missed issues.
+
+**Important:** This is a "peer review by LLM" pattern, not a formal eval framework. Evaluators use the same model and tool access as the generator. They are effective at catching obvious acceptance criteria misses (missing features, broken mechanics, incomplete implementations), but they share the same limitations as the generator — they can hallucinate, miss subtle bugs, or be overly generous. For rigorous validation, complement with manual testing or a dedicated eval harness.
+
 ### Examples
 
 See [chiefloopEVALexample](https://github.com/ProxiBlue/chiefloopEVALexample) for a side-by-side comparison of the same task (a Mage Lander game) built with and without evaluation enabled.
