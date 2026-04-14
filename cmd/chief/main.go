@@ -18,7 +18,7 @@ import (
 )
 
 // Version is set at build time via ldflags
-var Version = "0.9.0-proxiblue"
+var Version = "0.8.0-proxiblue"
 
 // TUIOptions holds the parsed command-line options for the TUI
 type TUIOptions struct {
