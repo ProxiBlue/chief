@@ -31,6 +31,7 @@ type TUIOptions struct {
 	Agent         string // --agent claude|codex|opencode|cursor
 	AgentPath     string // --agent-path
 	Eval          bool   // --eval to enable adversarial evaluation
+	EvalModel     string // --eval-model to override model for evaluators
 }
 
 func main() {
@@ -191,6 +192,13 @@ func parseTUIFlags() *TUIOptions {
 			opts.NoRetry = true
 		case arg == "--eval":
 			opts.Eval = true
+		case arg == "--eval-model":
+			if i+1 < len(os.Args) {
+				i++
+				opts.EvalModel = os.Args[i]
+			}
+		case strings.HasPrefix(arg, "--eval-model="):
+			opts.EvalModel = strings.TrimPrefix(arg, "--eval-model=")
 		case arg == "--agent" || arg == "--agent-path":
 			i++ // skip value (already parsed by parseAgentFlags)
 		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--agent-path="):
@@ -465,6 +473,13 @@ func runTUIWithOptions(opts *TUIOptions) {
 		app.EnableEvaluation()
 	}
 
+	// CLI --eval-model overrides config
+	if opts.EvalModel != "" {
+		if appCfg := app.Config(); appCfg != nil {
+			appCfg.Evaluation.Model = opts.EvalModel
+		}
+	}
+
 	// If evaluation config specifies a different provider or model, resolve and wire it
 	if appCfg := app.Config(); appCfg != nil && appCfg.Evaluation.Enabled {
 		if appCfg.Evaluation.Provider != "" {
@@ -556,6 +571,7 @@ Global Options:
   --max-iterations N, -n N  Set maximum iterations (default: dynamic)
   --no-retry                Disable auto-retry on agent crashes
   --eval                    Enable adversarial evaluation after each story
+  --eval-model <model>      Model override for evaluator agents (e.g. claude-haiku-4-5-20251001)
   --verbose                 Show raw agent output in log
   --merge                   Auto-merge progress on conversion conflicts
   --force                   Auto-overwrite on conversion conflicts

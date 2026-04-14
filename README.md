@@ -22,6 +22,12 @@ Or via install script:
 curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh
 ```
 
+### Install this fork (with adversarial evaluation)
+
+```bash
+curl -fsSL -o /usr/local/bin/chief https://raw.githubusercontent.com/ProxiBlue/chief/main/bin/chief && chmod +x /usr/local/bin/chief
+```
+
 ## Usage
 
 ```bash
@@ -48,6 +54,9 @@ Chief includes an optional adversarial evaluation system that validates generate
 
 ```bash
 chief --eval
+
+# Use a specific (cheaper) model for evaluators
+chief --eval --eval-model claude-haiku-4-5-20251001
 ```
 
 After each story is committed, multiple independent evaluator agents score the output on a 1-10 scale, deliberate on findings, and produce a pass/fail verdict. Stories that fail are automatically retried.
