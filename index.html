@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mage Lander</title>
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script>
+(function() {
+  'use strict';
+
+  // --- Game States ---
+  const STATE = {
+    MENU: 'menu',
+    PLAYING: 'playing',
+    LANDED: 'landed',
+    CRASHED: 'crashed',
+    GAME_OVER: 'game-over'
+  };
+
+  // --- Canvas Setup ---
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    if (typeof generateStars === 'function') {
+      generateStars();
+    }
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  // --- Game State ---
+  let gameState = STATE.MENU;
+
+  // --- Sound System (Web Audio API) ---
+  var audioCtx = null;
+  var soundEnabled = false;
+
+  function initAudio() {
+    if (audioCtx) return;
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      soundEnabled = true;
+    } catch (e) {
+      soundEnabled = false;
+    }
+  }
+
+  // Thrust sound state (looped noise)
+  var thrustNoiseSource = null;
+  var thrustGain = null;
+  var thrustActive = false;
+
+  function startThrustSound() {
+    if (!soundEnabled || thrustActive) return;
+    thrustActive = true;
+    // Create brown-noise-like rumble using a buffer
+    var bufferSize = audioCtx.sampleRate * 2; // 2 seconds of noise
+    var buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    var data = buffer.getChannelData(0);
+    var lastOut = 0;
+    for (var i = 0; i < bufferSize; i++) {
+      var white = Math.random() * 2 - 1;
+      // Brown noise approximation
+      lastOut = (lastOut + (0.02 * white)) / 1.02;
+      data[i] = lastOut * 3.5;
+    }
+    thrustNoiseSource = audioCtx.createBufferSource();
+    thrustNoiseSource.buffer = buffer;
+    thrustNoiseSource.loop = true;
+
+    // Low-pass filter to make it a rumble
+    var filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 200;
+
+    thrustGain = audioCtx.createGain();
+    thrustGain.gain.value = 0.3;
+
+    thrustNoiseSource.connect(filter);
+    filter.connect(thrustGain);
+    thrustGain.connect(audioCtx.destination);
+    thrustNoiseSource.start();
+  }
+
+  function stopThrustSound() {
+    if (!thrustActive) return;
+    thrustActive = false;
+    if (thrustNoiseSource) {
+      try { thrustNoiseSource.stop(); } catch (e) {}
+      thrustNoiseSource = null;
+    }
+    thrustGain = null;
+  }
+
+  function playCrashSound() {
+    if (!soundEnabled) return;
+    // Explosion: burst of noise with rapid decay
+    var bufferSize = audioCtx.sampleRate; // 1 second
+    var buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    var data = buffer.getChannelData(0);
+    for (var i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 3);
+    }
+    var source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+
+    var filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 400;
+
+    var gain = audioCtx.createGain();
+    gain.gain.value = 0.5;
+
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    source.start();
+  }
+
+  function playLandingSound() {
+    if (!soundEnabled) return;
+    // Positive chime: two ascending tones
+    var now = audioCtx.currentTime;
+    var notes = [523.25, 659.25, 783.99]; // C5, E5, G5
+
+    for (var i = 0; i < notes.length; i++) {
+      var osc = audioCtx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = notes[i];
+
+      var gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0, now + i * 0.12);
+      gain.gain.linearRampToValueAtTime(0.25, now + i * 0.12 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.5);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(now + i * 0.12);
+      osc.stop(now + i * 0.12 + 0.5);
+    }
+  }
+
+  // --- Ship ---
+  var ship = {
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    rotation: 0, // radians, 0 = pointing up
+    width: 30,
+    height: 36
+  };
+
+  var BASE_GRAVITY = 40;     // pixels/s^2 downward at level 1
+  var GRAVITY = BASE_GRAVITY;
+  var THRUST = 100;          // pixels/s^2 when thrusting
+  var ROTATION_SPEED = 3;    // radians/s
+
+  // --- Fuel ---
+  var BASE_MAX_FUEL = 100;    // maximum fuel units at level 1
+  var MAX_FUEL = BASE_MAX_FUEL;
+  var FUEL_BURN_RATE = 10;    // fuel units per second while thrusting
+  var fuel = MAX_FUEL;
+
+  // --- Level / Difficulty ---
+  var level = 1;
+  var score = 0;
+  var lastLandingScore = 0; // points earned on most recent landing
+
+  // --- High Score Leaderboard ---
+  var HIGH_SCORE_KEY = 'mageLanderHighScores';
+  var highScores = []; // array of {score, level, date} sorted descending by score, max 10 entries
+  var lastInsertedIndex = -1; // index of the most recently added score, for highlighting
+
+  function loadHighScores() {
+    try {
+      var data = localStorage.getItem(HIGH_SCORE_KEY);
+      if (data) {
+        highScores = JSON.parse(data);
+        if (!Array.isArray(highScores)) highScores = [];
+      }
+    } catch (e) {
+      highScores = [];
+    }
+  }
+
+  function saveHighScores() {
+    try {
+      localStorage.setItem(HIGH_SCORE_KEY, JSON.stringify(highScores));
+    } catch (e) {
+      // localStorage unavailable — silently ignore
+    }
+  }
+
+  function addHighScore(s, lvl) {
+    var entry = { score: s, level: lvl, date: new Date().toISOString() };
+    highScores.push(entry);
+    highScores.sort(function(a, b) { return b.score - a.score; });
+    if (highScores.length > 10) highScores.length = 10;
+    // Find index of the just-inserted entry
+    lastInsertedIndex = -1;
+    for (var i = 0; i < highScores.length; i++) {
+      if (highScores[i] === entry) {
+        lastInsertedIndex = i;
+        break;
+      }
+    }
+    saveHighScores();
+  }
+
+  // Load saved scores on startup
+  loadHighScores();
+
+  // --- Terrain ---
+  var terrain = [];         // array of {x, y} points spanning the canvas width
+  var landingPads = [];     // array of {x, y, width} for each pad
+  var TERRAIN_SEGMENTS = 80; // number of line segments
+  var TERRAIN_MIN_Y = 0.45;  // minimum height (fraction from top)
+  var TERRAIN_MAX_Y = 0.90;  // maximum height (fraction from top)
+
+  // --- Landing Thresholds ---
+  var MAX_LANDING_VY = 50;    // max vertical speed for safe landing (px/s)
+  var MAX_LANDING_VX = 25;    // max horizontal speed for safe landing (px/s)
+  var MAX_LANDING_ANGLE = 15 * Math.PI / 180; // 15 degrees in radians
+
+  // --- Explosion / Screen Shake ---
+  var explosionParticles = [];
+  var screenShakeTimer = 0;
+  var SCREEN_SHAKE_DURATION = 0.3; // seconds
+  var SCREEN_SHAKE_INTENSITY = 8;  // max pixel offset
+
+  // --- Celebration Particles ---
+  var celebrationParticles = [];
+  var celebrationTimer = 0;
+  var CELEBRATION_DURATION = 1.5; // seconds before prompt appears
+
+  // --- Wind System ---
+  var windForce = 0;          // current horizontal wind force (px/s^2), positive = right
+  var windTarget = 0;         // target wind force we're transitioning toward
+  var windChangeTimer = 0;    // seconds until next wind direction/strength change
+  var WIND_CHANGE_MIN = 2;    // minimum seconds between wind changes
+  var WIND_CHANGE_MAX = 5;    // maximum seconds between wind changes
+  var WIND_LERP_SPEED = 1.5;  // how fast wind transitions to new target (per second)
+
+  function getWindMaxForce() {
+    // Wind ramps in gradually: absent at level 1, very weak at level 2, increasing from there
+    // Max wind force in px/s^2
+    if (level <= 1) return 0;
+    // Levels 2-3: very gentle (5-10), then ramps up
+    return Math.min(60, (level - 1) * 5);
+  }
+
+  function updateWind(dt) {
+    windChangeTimer -= dt;
+    if (windChangeTimer <= 0) {
+      // Pick a new target wind force
+      var maxForce = getWindMaxForce();
+      windTarget = (Math.random() * 2 - 1) * maxForce;
+      windChangeTimer = WIND_CHANGE_MIN + Math.random() * (WIND_CHANGE_MAX - WIND_CHANGE_MIN);
+    }
+    // Smoothly interpolate toward target
+    var diff = windTarget - windForce;
+    var step = WIND_LERP_SPEED * dt;
+    if (Math.abs(diff) < step) {
+      windForce = windTarget;
+    } else {
+      windForce += Math.sign(diff) * step * Math.abs(diff);
+    }
+  }
+
+  function resetWind() {
+    windForce = 0;
+    windTarget = 0;
+    windChangeTimer = WIND_CHANGE_MIN + Math.random() * (WIND_CHANGE_MAX - WIND_CHANGE_MIN);
+  }
+
+  function applyDifficultyScaling() {
+    // Gravity increases ~5% per level, capping around 2x base at level 20+
+    GRAVITY = BASE_GRAVITY * (1 + (level - 1) * 0.05);
+    // Fuel decreases ~3% per level, minimum 50% of base
+    MAX_FUEL = Math.max(BASE_MAX_FUEL * 0.5, BASE_MAX_FUEL * (1 - (level - 1) * 0.03));
+  }
+
+  function getPadConfig() {
+    // Returns array of pad widths for the current level
+    // Level 1: one wide pad; higher levels add more, narrower pads
+    if (level <= 1) return [100];
+    if (level === 2) return [80, 60];
+    if (level === 3) return [70, 50, 40];
+    // Level 4+: increasingly narrow pads
+    var pads = [];
+    var count = Math.min(2 + Math.floor(level / 2), 5);
+    for (var i = 0; i < count; i++) {
+      pads.push(Math.max(30, 90 - level * 8 - i * 10));
+    }
+    return pads;
+  }
+
+  function generateTerrain() {
+    terrain = [];
+    landingPads = [];
+    var w = canvas.width;
+    var h = canvas.height;
+    var segWidth = w / TERRAIN_SEGMENTS;
+
+    var padWidths = getPadConfig();
+
+    // Place each pad at a non-overlapping random position
+    var reserved = []; // array of {start, end} segment indices
+    var padDefs = [];   // array of {segStart, segEnd, y, width}
+
+    for (var p = 0; p < padWidths.length; p++) {
+      var padW = padWidths[p];
+      var padSegs = Math.max(2, Math.round(padW / segWidth));
+      var padY = h * (TERRAIN_MIN_Y + Math.random() * (TERRAIN_MAX_Y - TERRAIN_MIN_Y));
+
+      // Find a valid position that doesn't overlap existing pads (with 2-seg buffer)
+      var attempts = 0;
+      var padStart;
+      var valid;
+      do {
+        padStart = Math.floor(Math.random() * (TERRAIN_SEGMENTS - padSegs - 4)) + 2;
+        valid = true;
+        for (var r = 0; r < reserved.length; r++) {
+          if (padStart - 2 <= reserved[r].end && padStart + padSegs + 2 >= reserved[r].start) {
+            valid = false;
+            break;
+          }
+        }
+        attempts++;
+      } while (!valid && attempts < 100);
+
+      var padEnd = padStart + padSegs;
+      reserved.push({ start: padStart, end: padEnd });
+      padDefs.push({ segStart: padStart, segEnd: padEnd, y: padY, width: padW });
+    }
+
+    // Terrain jaggedness increases with level: adjacent points can differ more
+    // At level 1, full range is used uniformly. At higher levels, we add
+    // point-to-point variation to create sharper peaks and valleys.
+    var jaggedness = Math.min(0.15, (level - 1) * 0.01); // max 15% of canvas height extra variation
+
+    // Build terrain points
+    var prevY = h * (TERRAIN_MIN_Y + Math.random() * (TERRAIN_MAX_Y - TERRAIN_MIN_Y));
+    for (var i = 0; i <= TERRAIN_SEGMENTS; i++) {
+      var x = i * segWidth;
+      var y;
+      var inPad = false;
+      for (var p = 0; p < padDefs.length; p++) {
+        if (i >= padDefs[p].segStart && i <= padDefs[p].segEnd) {
+          y = padDefs[p].y;
+          inPad = true;
+          break;
+        }
+      }
+      if (!inPad) {
+        var baseY = h * (TERRAIN_MIN_Y + Math.random() * (TERRAIN_MAX_Y - TERRAIN_MIN_Y));
+        // Add jagged variation relative to previous point
+        var jag = (Math.random() * 2 - 1) * jaggedness * h;
+        y = baseY + jag;
+        // Clamp within terrain bounds
+        y = Math.max(h * TERRAIN_MIN_Y, Math.min(h * TERRAIN_MAX_Y, y));
+      }
+      prevY = y;
+      terrain.push({ x: x, y: y });
+    }
+
+    // Build landingPads array from padDefs
+    for (var p = 0; p < padDefs.length; p++) {
+      var def = padDefs[p];
+      var padX = def.segStart * segWidth;
+      var actualWidth = (def.segEnd - def.segStart) * segWidth;
+      landingPads.push({ x: padX, y: def.y, width: actualWidth });
+    }
+  }
+
+  function getTerrainHeightAt(x) {
+    // Returns the terrain y value at a given x by interpolating between terrain points
+    if (terrain.length < 2) return canvas.height;
+    if (x <= terrain[0].x) return terrain[0].y;
+    if (x >= terrain[terrain.length - 1].x) return terrain[terrain.length - 1].y;
+    for (var i = 0; i < terrain.length - 1; i++) {
+      if (x >= terrain[i].x && x <= terrain[i + 1].x) {
+        var t = (x - terrain[i].x) / (terrain[i + 1].x - terrain[i].x);
+        return terrain[i].y + t * (terrain[i + 1].y - terrain[i].y);
+      }
+    }
+    return canvas.height;
+  }
+
+  function getShipBottomPoint() {
+    // Ship bottom center in world coordinates (accounting for rotation)
+    var halfH = ship.height / 2;
+    return {
+      x: ship.x + Math.sin(ship.rotation) * halfH,
+      y: ship.y + Math.cos(ship.rotation) * halfH
+    };
+  }
+
+  function isOnPad(x) {
+    // Returns the pad if x is within a landing pad, null otherwise
+    for (var i = 0; i < landingPads.length; i++) {
+      var pad = landingPads[i];
+      if (x >= pad.x && x <= pad.x + pad.width) {
+        return pad;
+      }
+    }
+    return null;
+  }
+
+  function normalizeAngle(angle) {
+    // Normalize angle to [-PI, PI]
+    while (angle > Math.PI) angle -= 2 * Math.PI;
+    while (angle < -Math.PI) angle += 2 * Math.PI;
+    return angle;
+  }
+
+  function checkCollision() {
+    var bottom = getShipBottomPoint();
+    var terrainY = getTerrainHeightAt(bottom.x);
+
+    // No collision if ship bottom is above terrain
+    if (bottom.y < terrainY) return;
+
+    // Collision detected — snap ship to terrain surface
+    var pad = isOnPad(bottom.x);
+
+    if (!pad) {
+      // Hit terrain (not a pad) — always crash
+      stopThrustSound();
+      createExplosion(bottom.x, bottom.y);
+      playCrashSound();
+      gameState = STATE.CRASHED;
+      return;
+    }
+
+    // On a pad — check landing conditions
+    var angle = Math.abs(normalizeAngle(ship.rotation));
+    var absVY = Math.abs(ship.vy);
+    var absVX = Math.abs(ship.vx);
+
+    if (absVY < MAX_LANDING_VY && absVX < MAX_LANDING_VX && angle < MAX_LANDING_ANGLE) {
+      // Successful landing! Award score based on precision, fuel, pad difficulty, and level
+      var precisionBonus = Math.round((1 - absVY / MAX_LANDING_VY) * 50 + (1 - absVX / MAX_LANDING_VX) * 30 + (fuel / MAX_FUEL) * 20);
+      // Narrower pads give higher multiplier: 100px pad = 1.0x, 30px pad ≈ 3.3x
+      var padDifficulty = 100 / pad.width;
+      lastLandingScore = Math.round(precisionBonus * padDifficulty * level);
+      score += lastLandingScore;
+      stopThrustSound();
+      createCelebration(pad);
+      playLandingSound();
+      gameState = STATE.LANDED;
+    } else {
+      // Failed landing conditions — crash
+      stopThrustSound();
+      createExplosion(bottom.x, bottom.y);
+      playCrashSound();
+      gameState = STATE.CRASHED;
+    }
+  }
+
+  function createExplosion(x, y) {
+    explosionParticles = [];
+    var count = 40;
+    for (var i = 0; i < count; i++) {
+      var angle = Math.random() * Math.PI * 2;
+      var speed = 50 + Math.random() * 200;
+      explosionParticles.push({
+        x: x,
+        y: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0, // 1.0 = fully alive, 0.0 = dead
+        size: 2 + Math.random() * 4,
+        color: Math.random() < 0.5 ? '#f26322' : (Math.random() < 0.5 ? '#ff4444' : '#ffcc00')
+      });
+    }
+    screenShakeTimer = SCREEN_SHAKE_DURATION;
+  }
+
+  function updateExplosion(dt) {
+    for (var i = explosionParticles.length - 1; i >= 0; i--) {
+      var p = explosionParticles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += GRAVITY * 0.5 * dt; // slight gravity on particles
+      p.life -= dt; // fade over 1 second
+      if (p.life <= 0) {
+        explosionParticles.splice(i, 1);
+      }
+    }
+    if (screenShakeTimer > 0) {
+      screenShakeTimer -= dt;
+      if (screenShakeTimer < 0) screenShakeTimer = 0;
+    }
+  }
+
+  function drawExplosion() {
+    for (var i = 0; i < explosionParticles.length; i++) {
+      var p = explosionParticles[i];
+      var alpha = Math.max(0, p.life);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1.0;
+  }
+
+  function applyScreenShake() {
+    if (screenShakeTimer > 0) {
+      var intensity = SCREEN_SHAKE_INTENSITY * (screenShakeTimer / SCREEN_SHAKE_DURATION);
+      var offsetX = (Math.random() * 2 - 1) * intensity;
+      var offsetY = (Math.random() * 2 - 1) * intensity;
+      ctx.save();
+      ctx.translate(offsetX, offsetY);
+      return true;
+    }
+    return false;
+  }
+
+  function restoreScreenShake(shaking) {
+    if (shaking) {
+      ctx.restore();
+    }
+  }
+
+  function createCelebration(pad) {
+    celebrationParticles = [];
+    celebrationTimer = CELEBRATION_DURATION;
+    var count = 50;
+    var colors = ['#f26322', '#ffffff', '#ffcc00'];
+    for (var i = 0; i < count; i++) {
+      var angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.8; // mostly upward
+      var speed = 80 + Math.random() * 180;
+      celebrationParticles.push({
+        x: pad.x + Math.random() * pad.width,
+        y: pad.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0,
+        size: 2 + Math.random() * 4,
+        color: colors[Math.floor(Math.random() * colors.length)]
+      });
+    }
+  }
+
+  function updateCelebration(dt) {
+    for (var i = celebrationParticles.length - 1; i >= 0; i--) {
+      var p = celebrationParticles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += GRAVITY * 0.3 * dt; // light gravity so they float
+      p.life -= dt / 1.5; // fade over 1.5 seconds
+      if (p.life <= 0) {
+        celebrationParticles.splice(i, 1);
+      }
+    }
+    if (celebrationTimer > 0) {
+      celebrationTimer -= dt;
+      if (celebrationTimer < 0) celebrationTimer = 0;
+    }
+  }
+
+  function drawCelebration() {
+    for (var i = 0; i < celebrationParticles.length; i++) {
+      var p = celebrationParticles[i];
+      var alpha = Math.max(0, p.life);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1.0;
+  }
+
+  function drawTerrain() {
+    if (terrain.length === 0) return;
+    ctx.fillStyle = '#555';
+    ctx.beginPath();
+    ctx.moveTo(terrain[0].x, terrain[0].y);
+    for (var i = 1; i < terrain.length; i++) {
+      ctx.lineTo(terrain[i].x, terrain[i].y);
+    }
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.lineTo(0, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // Draw terrain outline
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(terrain[0].x, terrain[0].y);
+    for (var i = 1; i < terrain.length; i++) {
+      ctx.lineTo(terrain[i].x, terrain[i].y);
+    }
+    ctx.stroke();
+
+    // Draw landing pads
+    drawLandingPads();
+  }
+
+  function drawLandingPads() {
+    var time = performance.now() / 1000;
+    for (var i = 0; i < landingPads.length; i++) {
+      var pad = landingPads[i];
+      var pulse = 0.5 + 0.5 * Math.sin(time * 3 + i * 1.5); // 0..1 pulsing
+
+      // Glow effect (drawn behind the pad surface)
+      var glowAlpha = 0.15 + pulse * 0.15;
+      ctx.shadowColor = 'rgba(0, 255, 100, ' + (0.5 + pulse * 0.5) + ')';
+      ctx.shadowBlur = 10 + pulse * 10;
+      ctx.fillStyle = 'rgba(0, 255, 100, ' + glowAlpha + ')';
+      ctx.fillRect(pad.x - 2, pad.y - 6, pad.width + 4, 10);
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+
+      // Pad surface — bright green bar
+      var green = Math.floor(200 + pulse * 55);
+      ctx.fillStyle = 'rgb(0, ' + green + ', 60)';
+      ctx.fillRect(pad.x, pad.y - 3, pad.width, 6);
+
+      // Edge markers
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(pad.x, pad.y - 6, 3, 12);
+      ctx.fillRect(pad.x + pad.width - 3, pad.y - 6, 3, 12);
+
+      // Center marker line
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.4 + pulse * 0.3) + ')';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pad.x + pad.width / 2, pad.y - 4);
+      ctx.lineTo(pad.x + pad.width / 2, pad.y + 4);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function resetShip() {
+    ship.x = canvas.width / 2;
+    ship.y = canvas.height * 0.15;
+    ship.vx = 0;
+    ship.vy = 0;
+    ship.rotation = 0;
+    fuel = MAX_FUEL;
+    resetWind();
+  }
+
+  // --- Input Tracking ---
+  const keys = {};
+  window.addEventListener('keydown', function(e) {
+    keys[e.key] = true;
+    if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+    }
+    if (e.key === ' ') {
+      if (gameState === STATE.MENU) {
+        initAudio();
+        level = 1;
+        score = 0;
+        lastInsertedIndex = -1;
+        applyDifficultyScaling();
+        resetShip();
+        generateTerrain();
+        gameState = STATE.PLAYING;
+      } else if (gameState === STATE.LANDED && celebrationTimer <= 0) {
+        level++;
+        applyDifficultyScaling();
+        resetShip();
+        generateTerrain();
+        gameState = STATE.PLAYING;
+      } else if (gameState === STATE.GAME_OVER) {
+        initAudio();
+        level = 1;
+        score = 0;
+        lastInsertedIndex = -1;
+        applyDifficultyScaling();
+        resetShip();
+        generateTerrain();
+        gameState = STATE.PLAYING;
+      }
+    }
+    if (e.key === 'r' || e.key === 'R') {
+      if (gameState === STATE.PLAYING || gameState === STATE.CRASHED || gameState === STATE.LANDED) {
+        stopThrustSound();
+        resetShip();
+        gameState = STATE.PLAYING;
+      }
+    }
+    if (e.key === 'g' || e.key === 'G') {
+      if (gameState === STATE.CRASHED) {
+        addHighScore(score, level);
+        gameState = STATE.GAME_OVER;
+      }
+    }
+  });
+  window.addEventListener('keyup', function(e) {
+    keys[e.key] = false;
+  });
+
+  // --- Render Functions ---
+  function drawMenu() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Stars
+    drawStars();
+
+    var cx = canvas.width / 2;
+    var cy = canvas.height / 2;
+
+    // Mage-OS M logo (large, above title)
+    ctx.fillStyle = '#f26322';
+    ctx.font = 'bold 96px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('M', cx, cy - 110);
+
+    // Game title
+    ctx.fillStyle = '#f26322';
+    ctx.font = 'bold 48px monospace';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Mage Lander', cx, cy - 30);
+
+    // Press Space to Start
+    ctx.fillStyle = '#fff';
+    ctx.font = '20px monospace';
+    ctx.fillText('Press Space to Start', cx, cy + 20);
+
+    // Controls reference
+    ctx.fillStyle = '#888';
+    ctx.font = '14px monospace';
+    ctx.fillText('Arrow Keys / WASD - Thrust & Rotate', cx, cy + 65);
+    ctx.fillText('R - Restart Level', cx, cy + 85);
+    ctx.fillText('Space - Start Game', cx, cy + 105);
+  }
+
+  function updateShip(dt) {
+    // Rotation
+    if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
+      ship.rotation -= ROTATION_SPEED * dt;
+    }
+    if (keys['ArrowRight'] || keys['d'] || keys['D']) {
+      ship.rotation += ROTATION_SPEED * dt;
+    }
+
+    // Gravity (always pulls down)
+    ship.vy += GRAVITY * dt;
+
+    // Wind (horizontal force)
+    updateWind(dt);
+    ship.vx += windForce * dt;
+
+    // Thrust (in direction ship is facing; rotation=0 means up)
+    // Only thrust if fuel remains
+    var thrustKeyPressed = keys['ArrowUp'] || keys['w'] || keys['W'];
+    if (thrustKeyPressed && fuel > 0) {
+      ship.vx += Math.sin(ship.rotation) * THRUST * dt;
+      ship.vy -= Math.cos(ship.rotation) * THRUST * dt;
+      fuel -= FUEL_BURN_RATE * dt;
+      if (fuel < 0) fuel = 0;
+      startThrustSound();
+    } else {
+      stopThrustSound();
+    }
+
+    // Update position
+    ship.x += ship.vx * dt;
+    ship.y += ship.vy * dt;
+
+    // Horizontal wrapping
+    if (ship.x < -ship.width) {
+      ship.x = canvas.width + ship.width;
+    } else if (ship.x > canvas.width + ship.width) {
+      ship.x = -ship.width;
+    }
+
+    // Clamp vertical (don't fly off top)
+    if (ship.y < 0) {
+      ship.y = 0;
+      ship.vy = Math.max(ship.vy, 0);
+    }
+
+    // Check for collision with terrain / landing pads
+    checkCollision();
+  }
+
+  function drawShip() {
+    ctx.save();
+    ctx.translate(ship.x, ship.y);
+    ctx.rotate(ship.rotation);
+
+    // Draw "M" logo shape in orange
+    ctx.fillStyle = '#f26322';
+    ctx.font = 'bold 36px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('M', 0, 0);
+
+    // Draw thrust flame when thrusting (only if fuel remains)
+    if ((keys['ArrowUp'] || keys['w'] || keys['W']) && fuel > 0) {
+      // Outer flame (orange-red, larger)
+      var outerLen = 26 + Math.random() * 14;
+      var outerW = 7 + Math.random() * 3;
+      ctx.fillStyle = 'rgba(255, 100, 20, 0.7)';
+      ctx.beginPath();
+      ctx.moveTo(-outerW, 18);
+      ctx.lineTo(-1 + Math.random() * 2, 18 + outerLen);
+      ctx.lineTo(outerW, 18);
+      ctx.closePath();
+      ctx.fill();
+
+      // Inner flame (yellow-white, smaller)
+      var innerLen = 16 + Math.random() * 10;
+      var innerW = 4 + Math.random() * 2;
+      ctx.fillStyle = 'rgba(255, 220, 80, 0.9)';
+      ctx.beginPath();
+      ctx.moveTo(-innerW, 18);
+      ctx.lineTo(Math.random() * 2 - 1, 18 + innerLen);
+      ctx.lineTo(innerW, 18);
+      ctx.closePath();
+      ctx.fill();
+
+      // Core flame (white-hot center)
+      var coreLen = 8 + Math.random() * 6;
+      ctx.fillStyle = 'rgba(255, 255, 220, 0.9)';
+      ctx.beginPath();
+      ctx.moveTo(-2, 18);
+      ctx.lineTo(0, 18 + coreLen);
+      ctx.lineTo(2, 18);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function getAltitude() {
+    // Distance from ship bottom to nearest terrain directly below
+    var bottom = getShipBottomPoint();
+    var terrainY = getTerrainHeightAt(bottom.x);
+    return Math.max(0, terrainY - bottom.y);
+  }
+
+  function getVelocityColor(value, maxSafe) {
+    // Returns color: white when safe, yellow when approaching limit, red when unsafe
+    var ratio = Math.abs(value) / maxSafe;
+    if (ratio < 0.5) return '#fff';
+    if (ratio < 0.8) return '#ffcc00';
+    return '#ff4444';
+  }
+
+  function drawHUD() {
+    var hudX = 20;
+    var hudY = 20;
+    var lineHeight = 20;
+    var fuelPct = fuel / MAX_FUEL;
+    var altitude = getAltitude();
+
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'left';
+
+    // Level and Score (top line)
+    ctx.fillStyle = '#fff';
+    ctx.fillText('LVL: ' + level, hudX, hudY);
+    ctx.fillText('SCORE: ' + score, hudX + 100, hudY);
+
+    // Altitude
+    ctx.fillStyle = '#fff';
+    ctx.fillText('ALT: ' + Math.round(altitude) + ' px', hudX, hudY + lineHeight);
+
+    // Vertical velocity — color-coded
+    var vyColor = getVelocityColor(ship.vy, MAX_LANDING_VY);
+    ctx.fillStyle = vyColor;
+    ctx.fillText('VY:  ' + (ship.vy >= 0 ? '+' : '') + ship.vy.toFixed(1) + ' px/s', hudX, hudY + lineHeight * 2);
+
+    // Horizontal velocity — color-coded
+    var vxColor = getVelocityColor(ship.vx, MAX_LANDING_VX);
+    ctx.fillStyle = vxColor;
+    ctx.fillText('VX:  ' + (ship.vx >= 0 ? '+' : '') + ship.vx.toFixed(1) + ' px/s', hudX, hudY + lineHeight * 3);
+
+    // Fuel bar
+    var barX = hudX;
+    var barY = hudY + lineHeight * 4;
+    var barWidth = 160;
+    var barHeight = 14;
+
+    // Fuel label and percentage
+    var pctText = Math.round(fuelPct * 100) + '%';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('FUEL', barX, barY - 3);
+    ctx.textAlign = 'right';
+    ctx.fillText(pctText, barX + barWidth, barY - 3);
+    ctx.textAlign = 'left';
+
+    // Bar background
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+
+    // Bar fill — green when high, yellow when medium, red when low
+    var r, g;
+    if (fuelPct > 0.5) {
+      r = Math.floor((1 - fuelPct) * 2 * 255);
+      g = 255;
+    } else {
+      r = 255;
+      g = Math.floor(fuelPct * 2 * 255);
+    }
+    ctx.fillStyle = 'rgb(' + r + ',' + g + ',0)';
+    ctx.fillRect(barX, barY, barWidth * fuelPct, barHeight);
+
+    // Bar border
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+    // Wind indicator
+    var maxForce = getWindMaxForce();
+    if (maxForce > 0) {
+      var windY = barY + barHeight + lineHeight + 5;
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.fillText('WIND', hudX, windY);
+
+      // Arrow showing direction and relative strength
+      var arrowCenterX = hudX + 80;
+      var arrowCenterY = windY - 4;
+      var strength = Math.abs(windForce) / maxForce; // 0..1 relative strength
+      var arrowLen = strength * 40; // max 40px arrow length
+      var direction = windForce >= 0 ? 1 : -1;
+
+      if (arrowLen > 1) {
+        // Arrow shaft
+        ctx.strokeStyle = strength > 0.6 ? '#ff4444' : (strength > 0.3 ? '#ffcc00' : '#88ff88');
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(arrowCenterX - direction * arrowLen / 2, arrowCenterY);
+        ctx.lineTo(arrowCenterX + direction * arrowLen / 2, arrowCenterY);
+        ctx.stroke();
+
+        // Arrowhead
+        var tipX = arrowCenterX + direction * arrowLen / 2;
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.beginPath();
+        ctx.moveTo(tipX, arrowCenterY);
+        ctx.lineTo(tipX - direction * 6, arrowCenterY - 4);
+        ctx.lineTo(tipX - direction * 6, arrowCenterY + 4);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        // Calm — draw a dot
+        ctx.fillStyle = '#88ff88';
+        ctx.beginPath();
+        ctx.arc(arrowCenterX, arrowCenterY, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawPlaying(dt) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawStars();
+    drawTerrain();
+
+    updateShip(dt);
+    drawShip();
+    drawHUD();
+  }
+
+  function drawLanded(dt) {
+    updateCelebration(dt);
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawStars();
+    drawTerrain();
+    drawShip();
+    drawCelebration();
+
+    // Overlay message
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, canvas.height / 2 - 80, canvas.width, 150);
+
+    ctx.fillStyle = '#0f0';
+    ctx.font = 'bold 36px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Landed!', canvas.width / 2, canvas.height / 2 - 40);
+
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = '22px monospace';
+    ctx.fillText('+' + lastLandingScore + ' pts', canvas.width / 2, canvas.height / 2);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px monospace';
+    ctx.fillText('SCORE: ' + score, canvas.width / 2, canvas.height / 2 + 25);
+
+    if (celebrationTimer <= 0) {
+      ctx.fillStyle = '#fff';
+      ctx.font = '18px monospace';
+      ctx.fillText('Press SPACE to continue', canvas.width / 2, canvas.height / 2 + 55);
+    }
+  }
+
+  function drawCrashed(dt) {
+    updateExplosion(dt);
+
+    // Clear before shake so the full canvas is covered
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    var shaking = applyScreenShake();
+
+    drawStars();
+    drawTerrain();
+    // Ship is hidden during explosion — draw particles instead
+    drawExplosion();
+
+    restoreScreenShake(shaking);
+
+    // Overlay message (drawn without shake so text stays stable)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, canvas.height / 2 - 60, canvas.width, 130);
+
+    ctx.fillStyle = '#f00';
+    ctx.font = 'bold 36px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Crashed!', canvas.width / 2, canvas.height / 2 - 20);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '18px monospace';
+    ctx.fillText('Press R to restart', canvas.width / 2, canvas.height / 2 + 20);
+    ctx.fillText('Press G for game over', canvas.width / 2, canvas.height / 2 + 50);
+  }
+
+  function drawGameOver() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawStars();
+
+    var cx = canvas.width / 2;
+    var startY = canvas.height / 2 - 120;
+
+    ctx.textAlign = 'center';
+
+    // Title
+    ctx.fillStyle = '#f00';
+    ctx.font = 'bold 36px monospace';
+    ctx.fillText('GAME OVER', cx, startY);
+
+    // Final score
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = '22px monospace';
+    ctx.fillText('Final Score: ' + score, cx, startY + 45);
+
+    // Level reached
+    ctx.fillStyle = '#fff';
+    ctx.font = '18px monospace';
+    ctx.fillText('Level Reached: ' + level, cx, startY + 75);
+
+    // High score leaderboard
+    ctx.fillStyle = '#f26322';
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText('HIGH SCORES', cx, startY + 115);
+
+    ctx.font = '14px monospace';
+    if (highScores.length === 0) {
+      ctx.fillStyle = '#888';
+      ctx.fillText('No scores yet', cx, startY + 140);
+    } else {
+      for (var i = 0; i < highScores.length; i++) {
+        var hs = highScores[i];
+        var isCurrentScore = (i === lastInsertedIndex);
+        if (isCurrentScore) {
+          // Highlight current score with a background bar
+          ctx.fillStyle = 'rgba(242, 99, 34, 0.25)';
+          ctx.fillRect(cx - 220, startY + 128 + i * 22, 440, 20);
+          ctx.fillStyle = '#f26322';
+        } else if (i === 0) {
+          ctx.fillStyle = '#ffcc00';
+        } else {
+          ctx.fillStyle = '#ccc';
+        }
+        var dateStr = '';
+        if (hs.date) {
+          var d = new Date(hs.date);
+          dateStr = '  ' + (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
+        }
+        var prefix = isCurrentScore ? '>' : ' ';
+        ctx.fillText(prefix + (i + 1) + '. ' + hs.score + ' pts  Lvl ' + hs.level + dateStr, cx, startY + 142 + i * 22);
+      }
+    }
+
+    // Play again prompt
+    var bottomY = startY + 142 + Math.max(highScores.length, 1) * 22 + 20;
+    ctx.fillStyle = '#fff';
+    ctx.font = '20px monospace';
+    ctx.fillText('Press Space to Play Again', cx, bottomY);
+  }
+
+  // Simple static stars — regenerated on canvas resize
+  var stars = [];
+
+  function generateStars() {
+    stars = [];
+    for (var i = 0; i < 200; i++) {
+      stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        radius: Math.random() * 1.5 + 0.5,
+        brightness: Math.random() * 0.5 + 0.5
+      });
+    }
+  }
+  generateStars();
+
+  function drawStars() {
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i];
+      ctx.fillStyle = 'rgba(255,255,255,' + s.brightness + ')';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // --- Game Loop ---
+  let lastTime = 0;
+
+  function gameLoop(timestamp) {
+    if (lastTime === 0) {
+      lastTime = timestamp;
+    }
+    const dt = Math.min((timestamp - lastTime) / 1000, 0.1); // cap at 100ms to avoid spiral
+    lastTime = timestamp;
+
+    switch (gameState) {
+      case STATE.MENU:
+        drawMenu();
+        break;
+      case STATE.PLAYING:
+        drawPlaying(dt);
+        break;
+      case STATE.LANDED:
+        drawLanded(dt);
+        break;
+      case STATE.CRASHED:
+        drawCrashed(dt);
+        break;
+      case STATE.GAME_OVER:
+        drawGameOver();
+        break;
+    }
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  requestAnimationFrame(gameLoop);
+})();
+</script>
+</body>
+</html>

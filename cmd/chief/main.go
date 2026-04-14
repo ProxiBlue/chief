@@ -30,6 +30,7 @@ type TUIOptions struct {
 	NoRetry       bool
 	Agent         string // --agent claude|codex|opencode|cursor
 	AgentPath     string // --agent-path
+	Eval          bool   // --eval to enable adversarial evaluation
 }
 
 func main() {
@@ -188,6 +189,8 @@ func parseTUIFlags() *TUIOptions {
 			opts.Force = true
 		case arg == "--no-retry":
 			opts.NoRetry = true
+		case arg == "--eval":
+			opts.Eval = true
 		case arg == "--agent" || arg == "--agent-path":
 			i++ // skip value (already parsed by parseAgentFlags)
 		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--agent-path="):
@@ -457,6 +460,21 @@ func runTUIWithOptions(opts *TUIOptions) {
 		app.DisableRetry()
 	}
 
+	// Enable adversarial evaluation if requested
+	if opts.Eval {
+		app.EnableEvaluation()
+	}
+
+	// If evaluation config specifies a different provider, resolve and wire it
+	if appCfg := app.Config(); appCfg != nil && appCfg.Evaluation.Enabled && appCfg.Evaluation.Provider != "" {
+		evalProvider, err := agent.Resolve(appCfg.Evaluation.Provider, "", appCfg)
+		if err == nil {
+			if err := agent.CheckInstalled(evalProvider); err == nil {
+				app.SetEvalProvider(evalProvider)
+			}
+		}
+	}
+
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	model, err := p.Run()
 	if err != nil {
@@ -518,6 +536,7 @@ Global Options:
   --agent-path <path>       Custom path to agent CLI binary
   --max-iterations N, -n N  Set maximum iterations (default: dynamic)
   --no-retry                Disable auto-retry on agent crashes
+  --eval                    Enable adversarial evaluation after each story
   --verbose                 Show raw agent output in log
   --merge                   Auto-merge progress on conversion conflicts
   --force                   Auto-overwrite on conversion conflicts

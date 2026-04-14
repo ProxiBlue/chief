@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/minicodemonkey/chief/internal/config"
+	"github.com/minicodemonkey/chief/internal/evaluation"
 	"github.com/minicodemonkey/chief/internal/git"
 	"github.com/minicodemonkey/chief/internal/loop"
 	"github.com/minicodemonkey/chief/internal/prd"
@@ -147,6 +148,7 @@ const (
 	ViewCompletion
 	ViewSettings
 	ViewQuitConfirm
+	ViewEvaluation
 )
 
 // App is the main Bubble Tea model for the Chief TUI.
@@ -218,6 +220,9 @@ type App struct {
 
 	// Quit confirmation dialog
 	quitConfirm *QuitConfirmation
+
+	// Evaluation transcript viewer
+	evalViewer *EvaluationViewer
 
 	// Completion notification callback
 	onCompletion func(prdName string)
@@ -342,6 +347,7 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		completionScreen: NewCompletionScreen(),
 		settingsOverlay:  NewSettingsOverlay(),
 		quitConfirm:      NewQuitConfirmation(),
+		evalViewer:       NewEvaluationViewer(),
 	}, nil
 }
 
@@ -356,6 +362,34 @@ func (a *App) SetCompletionCallback(fn func(prdName string)) {
 // SetVerbose enables or disables verbose mode (raw Claude output in log).
 func (a *App) SetVerbose(v bool) {
 	a.verbose = v
+}
+
+// EnableEvaluation enables adversarial evaluation with default config.
+// If the config already has evaluation settings, it just enables them.
+func (a *App) EnableEvaluation() {
+	if a.config == nil {
+		a.config = config.Default()
+	}
+	// Just enable — ApplyEvaluationDefaults fills zero-value gaps
+	// without overwriting user-configured values from config.yaml
+	a.config.Evaluation.Enabled = true
+	a.config.ApplyEvaluationDefaults()
+	// Update the manager's config
+	if a.manager != nil {
+		a.manager.SetConfig(a.config)
+	}
+}
+
+// Config returns the app's current config.
+func (a *App) Config() *config.Config {
+	return a.config
+}
+
+// SetEvalProvider sets a different agent provider for evaluation agents.
+func (a *App) SetEvalProvider(provider loop.Provider) {
+	if a.manager != nil {
+		a.manager.SetEvalProvider(provider)
+	}
 }
 
 // DisableRetry disables automatic retry on Claude crashes.
@@ -516,7 +550,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.viewMode = a.previousViewMode
 				return a, nil
 			}
-			if a.viewMode == ViewDashboard || a.viewMode == ViewLog || a.viewMode == ViewPicker || a.viewMode == ViewCompletion {
+			if a.viewMode == ViewDashboard || a.viewMode == ViewLog || a.viewMode == ViewPicker || a.viewMode == ViewCompletion || a.viewMode == ViewEvaluation {
 				a.previousViewMode = a.viewMode
 				a.settingsOverlay.SetSize(a.width, a.height)
 				a.settingsOverlay.LoadFromConfig(a.config)
@@ -557,6 +591,39 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle completion screen view
 		if a.viewMode == ViewCompletion {
 			return a.handleCompletionKeys(msg)
+		}
+
+		// Handle evaluation viewer
+		if a.viewMode == ViewEvaluation {
+			switch msg.String() {
+			case "esc", "e":
+				a.viewMode = ViewDashboard
+			case "q", "ctrl+c":
+				return a.tryQuit()
+			case "up", "k":
+				a.evalViewer.ScrollUp()
+			case "down", "j":
+				a.evalViewer.ScrollDown()
+			case "ctrl+d", "pgdown":
+				a.evalViewer.PageDown()
+			case "ctrl+u", "pgup":
+				a.evalViewer.PageUp()
+			case "t":
+				a.viewMode = ViewLog
+			case "d":
+				a.viewMode = ViewDashboard
+				// Re-dispatch 'd' to enter diff view from dashboard
+				return a.Update(msg)
+			case "n", "l":
+				a.viewMode = ViewDashboard
+				return a.Update(msg)
+			case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+				a.viewMode = ViewDashboard
+				return a.Update(msg)
+			default:
+				// Ignore unhandled keys
+			}
+			return a, nil
 		}
 
 		// Handle quit confirmation dialog
@@ -619,9 +686,26 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 
-		// Edit current PRD
+		// Edit PRD or view evaluation transcript
 		case "e":
+			if a.viewMode == ViewEvaluation {
+				// Close evaluation viewer
+				a.viewMode = ViewDashboard
+				return a, nil
+			}
 			if a.viewMode == ViewDashboard || a.viewMode == ViewLog || a.viewMode == ViewDiff {
+				// If selected story is done, try to show evaluation transcript
+				if story := a.GetSelectedStory(); story != nil && story.Passes {
+					prdName := prd.ExtractPRDName(a.prdPath)
+					result, err := evaluation.LoadResult(a.prdPath, prdName, story.ID)
+					if err == nil && result != nil {
+						a.evalViewer.SetResult(result)
+						a.evalViewer.SetSize(a.width-4, a.height-headerHeight-footerHeight-2)
+						a.viewMode = ViewEvaluation
+						return a, nil
+					}
+				}
+				// Fallback: edit PRD
 				a.stopAllLoops()
 				a.stopWatcher()
 				return a, func() tea.Msg {
@@ -910,6 +994,20 @@ func (a *App) renderQuitConfirmView() string {
 	return a.quitConfirm.Render()
 }
 
+// renderEvaluationView renders the evaluation transcript viewer.
+func (a *App) renderEvaluationView() string {
+	header := a.renderHeader()
+	footer := a.renderFooter()
+	contentHeight := a.height - headerHeight - footerHeight
+	a.evalViewer.SetSize(a.width-4, contentHeight-2)
+	content := a.evalViewer.View()
+
+	// Use the same panel style as log/diff views
+	bordered := panelStyle.Width(a.width - 2).Height(contentHeight - 2).Render(content)
+
+	return header + bordered + footer
+}
+
 // handleLoopEvent handles events from the manager.
 func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.Cmd) {
 	// Only update iteration and log if this is the currently viewed PRD
@@ -993,12 +1091,33 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		if isCurrentPRD {
 			a.lastActivity = event.Text
 		}
+	case loop.EventEvaluationStart:
+		if isCurrentPRD {
+			a.lastActivity = "🔍 " + event.Text
+		}
+	case loop.EventEvaluationProgress:
+		if isCurrentPRD {
+			a.lastActivity = "🔍 " + event.Text
+		}
+	case loop.EventEvaluationPass:
+		if isCurrentPRD {
+			a.lastActivity = "✅ " + event.Text
+		}
+	case loop.EventEvaluationFail:
+		if isCurrentPRD {
+			a.lastActivity = "❌ " + event.Text
+		}
+	case loop.EventEvaluationMaxRetries:
+		if isCurrentPRD {
+			a.lastActivity = "⚠️ " + event.Text
+		}
 	}
 
 	// Reload PRD from disk only on meaningful state changes (not every event)
 	if isCurrentPRD {
 		switch event.Type {
-		case loop.EventStoryDone, loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached:
+		case loop.EventStoryDone, loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached,
+			loop.EventEvaluationPass, loop.EventEvaluationFail, loop.EventEvaluationMaxRetries:
 			if p, err := prd.LoadPRD(a.prdPath); err == nil {
 				a.prd = p
 			}
@@ -1077,6 +1196,8 @@ func (a App) View() string {
 		return a.renderSettingsView()
 	case ViewQuitConfirm:
 		return a.renderQuitConfirmView()
+	case ViewEvaluation:
+		return a.renderEvaluationView()
 	default:
 		return a.renderDashboard()
 	}

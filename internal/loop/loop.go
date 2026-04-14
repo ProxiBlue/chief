@@ -17,8 +17,30 @@ import (
 	"time"
 
 	"github.com/minicodemonkey/chief/embed"
+	"github.com/minicodemonkey/chief/internal/config"
+	"github.com/minicodemonkey/chief/internal/evaluation"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
+
+// evalProviderAdapter wraps a loop.Provider to satisfy evaluation.AgentProvider.
+type evalProviderAdapter struct {
+	p Provider
+}
+
+func (a *evalProviderAdapter) Name() string { return a.p.Name() }
+func (a *evalProviderAdapter) LoopCommand(ctx context.Context, prompt, workDir string) *exec.Cmd {
+	return a.p.LoopCommand(ctx, prompt, workDir)
+}
+func (a *evalProviderAdapter) ParseLine(line string) *evaluation.AgentEvent {
+	event := a.p.ParseLine(line)
+	if event == nil {
+		return nil
+	}
+	// Only include assistant text for score extraction — tool results contain
+	// file contents (HTML, code) with braces that break JSON parsing.
+	isText := event.Type == EventAssistantText
+	return &evaluation.AgentEvent{IsText: isText, Text: event.Text}
+}
 
 // RetryConfig configures automatic retry behavior on Claude crashes.
 type RetryConfig struct {
@@ -59,6 +81,9 @@ type Loop struct {
 	watchdogTimeout time.Duration
 	sawStoryDone    bool
 	currentStoryID  string
+	evalConfig      *config.EvaluationConfig
+	evalProvider    Provider
+	evalRetries     map[string]int
 }
 
 // NewLoop creates a new Loop instance.
@@ -118,6 +143,14 @@ func promptBuilderForPRD(prdPath string) func() (string, string, error) {
 		storyCtx := p.NextStoryContext()
 
 		prompt := embed.GetPrompt(prd.ProgressPath(prdPath), *storyCtx, story.ID, story.Title)
+
+		// If there's evaluation feedback from a failed attempt, append it
+		prdName := prd.ExtractPRDName(prdPath)
+		feedback, _ := evaluation.ReadFeedback(prdPath, prdName, story.ID)
+		if feedback != "" {
+			prompt += "\n\n## Previous Evaluation Feedback\n\nYour previous implementation was evaluated by adversarial reviewers and FAILED. Fix these issues:\n\n" + feedback
+		}
+
 		return prompt, story.ID, nil
 	}
 }
@@ -224,7 +257,54 @@ func (l *Loop) Run(ctx context.Context) error {
 		l.sawStoryDone = false
 		l.mu.Unlock()
 		if saw && storyID != "" {
-			_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
+			l.mu.Lock()
+			evalCfg := l.evalConfig
+			evalProv := l.evalProvider
+			l.mu.Unlock()
+
+			if evalCfg != nil && evalCfg.Enabled && evalProv != nil {
+				// Run adversarial evaluation before marking done
+				workDir := l.effectiveWorkDir()
+				prdName := prd.ExtractPRDName(l.prdPath)
+				adapter := &evalProviderAdapter{p: evalProv}
+				progress := func(sid, msg string) {
+					l.events <- Event{Type: EventEvaluationProgress, StoryID: sid, Text: msg}
+				}
+				l.events <- Event{Type: EventEvaluationStart, StoryID: storyID, Text: "Starting adversarial evaluation"}
+				result, err := evaluation.RunEvaluation(ctx, adapter, workDir, l.prdPath, storyID, evalCfg, progress)
+				if err != nil {
+					l.events <- Event{Type: EventEvaluationFail, StoryID: storyID, Text: "Evaluation error: " + err.Error()}
+					// On evaluation error, mark done to avoid infinite loop
+					_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
+				} else if result.Pass {
+					_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
+					l.events <- Event{Type: EventEvaluationPass, StoryID: storyID, Text: "Evaluation PASSED"}
+				} else {
+					// Failed evaluation — write feedback, don't mark done
+					l.mu.Lock()
+					if l.evalRetries == nil {
+						l.evalRetries = make(map[string]int)
+					}
+					l.evalRetries[storyID]++
+					retries := l.evalRetries[storyID]
+					l.mu.Unlock()
+
+					result.Attempt = retries
+					result.MaxAttempts = evalCfg.MaxRetries
+					_ = evaluation.WriteFeedback(l.prdPath, prdName, storyID, result, evalCfg.PassThreshold)
+					l.events <- Event{Type: EventEvaluationFail, StoryID: storyID, Text: fmt.Sprintf("Evaluation FAILED (attempt %d/%d)", retries, evalCfg.MaxRetries)}
+
+					if retries >= evalCfg.MaxRetries {
+						// Exhausted retries — mark done anyway, clean up stale feedback
+						_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
+						evaluation.CleanFeedback(l.prdPath, prdName, storyID)
+						l.events <- Event{Type: EventEvaluationMaxRetries, StoryID: storyID, Text: "Max evaluation retries reached, marking done"}
+					}
+					// Otherwise: story stays not-done, next iteration will retry it
+				}
+			} else {
+				_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
+			}
 		}
 		// buildPrompt on the next iteration will return error if all stories are complete,
 		// which causes EventComplete to be emitted above.
@@ -593,4 +673,16 @@ func (l *Loop) WatchdogTimeout() time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.watchdogTimeout
+}
+
+// SetEvalConfig configures adversarial evaluation for this loop.
+// When cfg is non-nil and Enabled is true, stories are evaluated after completion.
+func (l *Loop) SetEvalConfig(cfg *config.EvaluationConfig, evalProvider Provider) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.evalConfig = cfg
+	l.evalProvider = evalProvider
+	if l.evalRetries == nil {
+		l.evalRetries = make(map[string]int)
+	}
 }

@@ -67,7 +67,7 @@ func (h *HelpOverlay) GetCategories() []ShortcutCategory {
 		Name: "PRD Control",
 		Shortcuts: []Shortcut{
 			{Key: "1-9", Description: "Switch to PRD"},
-			{Key: "e", Description: "Edit current PRD"},
+			{Key: "e", Description: "Eval transcript (done) / Edit PRD"},
 			{Key: "n", Description: "Create new PRD"},
 			{Key: "l", Description: "List/manage PRDs"},
 		},
@@ -107,6 +107,19 @@ func (h *HelpOverlay) GetCategories() []ShortcutCategory {
 			},
 		}
 		return []ShortcutCategory{navigation, general}
+
+	case ViewEvaluation:
+		scrolling := ShortcutCategory{
+			Name: "Evaluation Viewer",
+			Shortcuts: []Shortcut{
+				{Key: "j / ↓", Description: "Scroll down"},
+				{Key: "k / ↑", Description: "Scroll up"},
+				{Key: "Ctrl+D / PgDn", Description: "Page down"},
+				{Key: "Ctrl+U / PgUp", Description: "Page up"},
+				{Key: "e / Esc", Description: "Close transcript"},
+			},
+		}
+		return []ShortcutCategory{scrolling, general}
 
 	default: // ViewDashboard
 		navigation := ShortcutCategory{

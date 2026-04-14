@@ -31,6 +31,16 @@ const (
 	EventRetrying
 	// EventWatchdogTimeout is emitted when the watchdog kills a hung process.
 	EventWatchdogTimeout
+	// EventEvaluationStart is emitted when adversarial evaluation begins for a story.
+	EventEvaluationStart
+	// EventEvaluationProgress is emitted for evaluator status updates.
+	EventEvaluationProgress
+	// EventEvaluationPass is emitted when a story passes evaluation.
+	EventEvaluationPass
+	// EventEvaluationFail is emitted when a story fails evaluation.
+	EventEvaluationFail
+	// EventEvaluationMaxRetries is emitted when a story exhausts evaluation retries.
+	EventEvaluationMaxRetries
 )
 
 // String returns the string representation of an EventType.
@@ -56,6 +66,16 @@ func (e EventType) String() string {
 		return "Retrying"
 	case EventWatchdogTimeout:
 		return "WatchdogTimeout"
+	case EventEvaluationStart:
+		return "EvaluationStart"
+	case EventEvaluationProgress:
+		return "EvaluationProgress"
+	case EventEvaluationPass:
+		return "EvaluationPass"
+	case EventEvaluationFail:
+		return "EvaluationFail"
+	case EventEvaluationMaxRetries:
+		return "EvaluationMaxRetries"
 	default:
 		return "Unknown"
 	}

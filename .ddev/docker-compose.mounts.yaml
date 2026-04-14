@@ -1,0 +1,8 @@
+services:
+  web:
+    volumes:
+      - "$HOME/.ssh/id_rsa:$HOME/.ssh/id_rsa:ro"
+      - "$HOME/.ssh/id_rsa.pub:$HOME/.ssh/id_rsa.pub:ro"
+      - "$HOME/.ssh/known_hosts:$HOME/.ssh/known_hosts:ro"
+      - "$HOME/.ssh/config:$HOME/.ssh/config:ro"
+      - "/tmp/.X11-unix:/tmp/.X11-unix"

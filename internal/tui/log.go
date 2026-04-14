@@ -77,7 +77,9 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 	switch event.Type {
 	case loop.EventAssistantText, loop.EventToolStart, loop.EventToolResult,
 		loop.EventStoryDone, loop.EventComplete, loop.EventError, loop.EventRetrying,
-		loop.EventWatchdogTimeout:
+		loop.EventWatchdogTimeout,
+		loop.EventEvaluationStart, loop.EventEvaluationProgress,
+		loop.EventEvaluationPass, loop.EventEvaluationFail, loop.EventEvaluationMaxRetries:
 		// Pre-render and cache lines
 		if l.width > 0 {
 			entry.cachedLines = l.renderEntry(entry)
@@ -364,6 +366,9 @@ func (l *LogViewer) renderEntry(entry LogEntry) []string {
 		return l.renderRetrying(entry)
 	case loop.EventWatchdogTimeout:
 		return l.renderWatchdogTimeout(entry)
+	case loop.EventEvaluationStart, loop.EventEvaluationProgress,
+		loop.EventEvaluationPass, loop.EventEvaluationFail, loop.EventEvaluationMaxRetries:
+		return l.renderEvaluation(entry)
 	default:
 		return l.renderText(entry)
 	}
@@ -631,4 +636,45 @@ func (l *LogViewer) renderWatchdogTimeout(entry LogEntry) []string {
 	}
 
 	return []string{style.Render("⏱ " + text)}
+}
+
+// renderEvaluation renders an evaluation event with appropriate styling.
+func (l *LogViewer) renderEvaluation(entry LogEntry) []string {
+	var icon string
+	var color lipgloss.Color
+
+	switch entry.Type {
+	case loop.EventEvaluationStart:
+		icon = "🔍"
+		color = PrimaryColor
+	case loop.EventEvaluationProgress:
+		icon = "  ↳"
+		color = MutedColor
+	case loop.EventEvaluationPass:
+		icon = "✅"
+		color = SuccessColor
+	case loop.EventEvaluationFail:
+		icon = "❌"
+		color = ErrorColor
+	case loop.EventEvaluationMaxRetries:
+		icon = "⚠️"
+		color = WarningColor
+	default:
+		icon = "🔍"
+		color = TextColor
+	}
+
+	style := lipgloss.NewStyle().Foreground(color).Bold(entry.Type != loop.EventEvaluationProgress)
+	text := entry.Text
+	if text == "" {
+		text = "Evaluation"
+	}
+
+	// Prefix with story ID for context
+	if entry.StoryID != "" && entry.Type != loop.EventEvaluationProgress {
+		storyStyle := lipgloss.NewStyle().Foreground(MutedColor)
+		return []string{style.Render(icon+" ") + storyStyle.Render("["+entry.StoryID+"] ") + style.Render(text)}
+	}
+
+	return []string{style.Render(icon + " " + text)}
 }

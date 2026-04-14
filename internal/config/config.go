@@ -14,6 +14,28 @@ type Config struct {
 	Worktree   WorktreeConfig   `yaml:"worktree"`
 	OnComplete OnCompleteConfig `yaml:"onComplete"`
 	Agent      AgentConfig      `yaml:"agent"`
+	Evaluation EvaluationConfig `yaml:"evaluation"`
+}
+
+// EvaluationConfig holds adversarial evaluation settings.
+type EvaluationConfig struct {
+	Enabled       bool   `yaml:"enabled"`       // opt-in, default false
+	Agents        int    `yaml:"agents"`         // number of evaluator agents, default 3
+	PassThreshold int    `yaml:"passThreshold"`  // minimum score per criterion (1-10), default 7
+	MaxRetries    int    `yaml:"maxRetries"`     // retry attempts per story on failure, default 3
+	Mode          string `yaml:"mode"`           // evaluator output style, default "caveman"
+	Provider      string `yaml:"provider"`       // defaults to same as main agent provider
+}
+
+// DefaultEvaluation returns sensible defaults for evaluation config.
+func DefaultEvaluation() EvaluationConfig {
+	return EvaluationConfig{
+		Enabled:       false,
+		Agents:        3,
+		PassThreshold: 7,
+		MaxRetries:    3,
+		Mode:          "caveman",
+	}
 }
 
 // AgentConfig holds agent CLI settings (Claude, Codex, OpenCode, or Cursor).
@@ -33,9 +55,29 @@ type OnCompleteConfig struct {
 	CreatePR bool `yaml:"createPR"`
 }
 
-// Default returns a Config with zero-value defaults.
+// Default returns a Config with sensible defaults.
 func Default() *Config {
-	return &Config{}
+	return &Config{
+		Evaluation: DefaultEvaluation(),
+	}
+}
+
+// ApplyEvaluationDefaults fills in zero-value evaluation fields with defaults.
+// This preserves user-set values while filling gaps.
+func (c *Config) ApplyEvaluationDefaults() {
+	d := DefaultEvaluation()
+	if c.Evaluation.Agents == 0 {
+		c.Evaluation.Agents = d.Agents
+	}
+	if c.Evaluation.PassThreshold == 0 {
+		c.Evaluation.PassThreshold = d.PassThreshold
+	}
+	if c.Evaluation.MaxRetries == 0 {
+		c.Evaluation.MaxRetries = d.MaxRetries
+	}
+	if c.Evaluation.Mode == "" {
+		c.Evaluation.Mode = d.Mode
+	}
 }
 
 // configPath returns the full path to the config file.
@@ -62,10 +104,13 @@ func Load(baseDir string) (*Config, error) {
 		return nil, err
 	}
 
-	cfg := Default()
+	cfg := &Config{}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
+
+	// Fill in any zero-value evaluation fields with defaults
+	cfg.ApplyEvaluationDefaults()
 
 	return cfg, nil
 }

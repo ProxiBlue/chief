@@ -73,6 +73,7 @@ type Manager struct {
 	provider       Provider
 	baseDir        string         // Project root directory (for CLAUDE.md etc.)
 	config         *config.Config // Project config for post-completion actions
+	evalProvider   Provider       // Provider for evaluation agents (may differ from main)
 	mu             sync.RWMutex
 	wg             sync.WaitGroup
 	onComplete     func(prdName string)                  // Callback when a PRD completes
@@ -117,6 +118,13 @@ func (m *Manager) SetPostCompleteCallback(fn func(prdName, branch, workDir strin
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onPostComplete = fn
+}
+
+// SetEvalProvider sets the provider used for evaluation agents.
+func (m *Manager) SetEvalProvider(provider Provider) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.evalProvider = provider
 }
 
 // SetBaseDir sets the project root directory so Claude runs from there and picks up CLAUDE.md.
@@ -240,6 +248,14 @@ func (m *Manager) Start(name string) error {
 	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
 	m.mu.RLock()
 	instance.Loop.SetRetryConfig(m.retryConfig)
+	// Wire evaluation config if enabled
+	if m.config != nil && m.config.Evaluation.Enabled {
+		evalProvider := m.evalProvider
+		if evalProvider == nil {
+			evalProvider = m.provider // default to same provider
+		}
+		instance.Loop.SetEvalConfig(&m.config.Evaluation, evalProvider)
+	}
 	m.mu.RUnlock()
 	instance.ctx, instance.cancel = context.WithCancel(context.Background())
 	instance.State = LoopStateRunning

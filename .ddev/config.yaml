@@ -1,0 +1,27 @@
+name: chiefloopadverserial
+type: generic
+docroot: ""
+webserver_type: nginx-fpm
+xdebug_enabled: false
+additional_hostnames: []
+additional_fqdns: []
+database:
+    type: mysql
+    version: "8.0"
+bind_all_interfaces: true
+hooks:
+    post-start:
+        - exec: bash ~/env.sh
+        - exec: cd /var/www/html/docs && npm install
+omit_containers: []
+host_webserver_port: "8185"
+host_https_port: "8186"
+webimage_extra_packages: [joe, jq, curl, wget, git, openssh-client, build-essential]
+use_dns_when_possible: true
+composer_version: "2"
+web_environment:
+    - CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+    - GOPATH=/home/.go
+    - PATH=/usr/local/go/bin:/home/.go/bin:$PATH
+nodejs_version: lts
+corepack_enable: false

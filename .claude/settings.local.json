@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude --version)",
+      "Bash(GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath make build:*)",
+      "Bash(/var/www/html/bin/chief:*)",
+      "Bash(curl -sL https://raw.githubusercontent.com/coleam00/adversarial-dev/main/README.md)",
+      "Bash(curl -sL https://minicodemonkey.github.io/chief/concepts/how-it-works)",
+      "Bash(curl -sL https://minicodemonkey.github.io/chief/guide/quick-start)",
+      "Bash(grep:*)",
+      "WebFetch(domain:minicodemonkey.github.io)",
+      "WebFetch(domain:chiefloop.com)",
+      "Bash(GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath go vet:*)",
+      "Bash(GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath go build:*)",
+      "Bash(GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath make test-short:*)",
+      "Bash(find:*)",
+      "Bash(git log:*)",
+      "Bash(\" /var/www/html/embed/evaluator_prompt.txt | head -20)",
+      "Bash(git hash-object:*)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(./bin/chief:*)",
+      "Bash(go mod:*)",
+      "Bash(go build:*)",
+      "Bash(GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath go test:*)"
+    ]
+  }
+}

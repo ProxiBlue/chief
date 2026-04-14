@@ -19,6 +19,12 @@ var editPromptTemplate string
 //go:embed detect_setup_prompt.txt
 var detectSetupPromptTemplate string
 
+//go:embed evaluator_prompt.txt
+var evaluatorPromptTemplate string
+
+//go:embed deliberation_prompt.txt
+var deliberationPromptTemplate string
+
 // GetPrompt returns the agent prompt with the progress path and
 // current story context substituted. The storyContext is the JSON of the
 // current story to work on, inlined directly into the prompt so that the
@@ -47,4 +53,27 @@ func GetEditPrompt(prdDir string) string {
 // GetDetectSetupPrompt returns the prompt for detecting project setup commands.
 func GetDetectSetupPrompt() string {
 	return detectSetupPromptTemplate
+}
+
+// GetEvaluatorPrompt returns the adversarial evaluator prompt with placeholders substituted.
+// Uses single-pass replacement to prevent re-expansion if values contain placeholder strings.
+func GetEvaluatorPrompt(evaluatorID, storyContext, diff string) string {
+	r := strings.NewReplacer(
+		"{{EVALUATOR_ID}}", evaluatorID,
+		"{{STORY_CONTEXT}}", storyContext,
+		"{{DIFF}}", diff,
+	)
+	return r.Replace(evaluatorPromptTemplate)
+}
+
+// GetDeliberationPrompt returns the deliberation round prompt with placeholders substituted.
+// Uses single-pass replacement to prevent re-expansion if values contain placeholder strings.
+func GetDeliberationPrompt(evaluatorID, storyContext, ownFindings, otherFindings string) string {
+	r := strings.NewReplacer(
+		"{{EVALUATOR_ID}}", evaluatorID,
+		"{{STORY_CONTEXT}}", storyContext,
+		"{{OWN_FINDINGS}}", ownFindings,
+		"{{OTHER_FINDINGS}}", otherFindings,
+	)
+	return r.Replace(deliberationPromptTemplate)
 }
