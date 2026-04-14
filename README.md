@@ -42,6 +42,41 @@ Chief runs Claude in a [Ralph Wiggum loop](https://ghuntley.com/ralph/): each it
 
 See the [documentation](https://minicodemonkey.github.io/chief/concepts/how-it-works) for details.
 
+## Adversarial Evaluation
+
+Chief includes an optional adversarial evaluation system that validates generated code against story acceptance criteria. Enable it with the `--eval` flag:
+
+```bash
+chief --eval
+```
+
+After each story is committed, multiple independent evaluator agents score the output on a 1-10 scale, deliberate on findings, and produce a pass/fail verdict. Stories that fail are automatically retried.
+
+### How It Works
+
+1. The generator agent commits code for a user story
+2. N evaluator agents (default 3) independently score each acceptance criterion
+3. Evaluators deliberate — challenging false positives and surfacing missed issues
+4. A story passes only if all criteria meet the threshold (default 7/10)
+5. Failed stories are retried up to `maxRetries` times
+
+### Configuration
+
+In `.chief/config.yaml`:
+
+```yaml
+evaluation:
+  enabled: false        # or use --eval flag
+  agents: 3             # number of parallel evaluators
+  passThreshold: 7      # minimum score per criterion (1-10)
+  maxRetries: 3         # retry attempts on failure
+  provider: ""          # LLM provider (defaults to main provider)
+```
+
+### Examples
+
+See [chiefloopEVALexample](https://github.com/ProxiBlue/chiefloopEVALexample) for a side-by-side comparison of the same task (a Mage Lander game) built with and without evaluation enabled.
+
 ## Requirements
 
 - **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)**, **[Codex CLI](https://developers.openai.com/codex/cli/reference)**, or **[OpenCode CLI](https://opencode.ai)** installed and authenticated
