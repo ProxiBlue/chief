@@ -11,3 +11,11 @@ node_modules/
 # VitePress
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+
+# Test/example folders
+test-chief-*/
+chiefloopEVALexample/
+
+# Screenshots
+*.png
+!assets/*.png

@@ -10,6 +10,7 @@ import (
 // ClaudeProvider implements loop.Provider for the Claude Code CLI.
 type ClaudeProvider struct {
 	cliPath string
+	model   string
 }
 
 // NewClaudeProvider returns a Provider for the Claude CLI.
@@ -27,14 +28,21 @@ func (p *ClaudeProvider) Name() string { return "Claude" }
 // CLIPath implements loop.Provider.
 func (p *ClaudeProvider) CLIPath() string { return p.cliPath }
 
+// SetModel implements loop.Provider.
+func (p *ClaudeProvider) SetModel(model string) { p.model = model }
+
 // LoopCommand implements loop.Provider.
 func (p *ClaudeProvider) LoopCommand(ctx context.Context, prompt, workDir string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, p.cliPath,
+	args := []string{
 		"--dangerously-skip-permissions",
 		"-p", prompt,
 		"--output-format", "stream-json",
 		"--verbose",
-	)
+	}
+	if p.model != "" {
+		args = append(args, "--model", p.model)
+	}
+	cmd := exec.CommandContext(ctx, p.cliPath, args...)
 	cmd.Dir = workDir
 	return cmd
 }

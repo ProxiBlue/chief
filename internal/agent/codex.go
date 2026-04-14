@@ -11,6 +11,7 @@ import (
 // CodexProvider implements loop.Provider for the Codex CLI.
 type CodexProvider struct {
 	cliPath string
+	model   string
 }
 
 // NewCodexProvider returns a Provider for the Codex CLI.
@@ -28,9 +29,17 @@ func (p *CodexProvider) Name() string { return "Codex" }
 // CLIPath implements loop.Provider.
 func (p *CodexProvider) CLIPath() string { return p.cliPath }
 
+// SetModel implements loop.Provider.
+func (p *CodexProvider) SetModel(model string) { p.model = model }
+
 // LoopCommand implements loop.Provider.
 func (p *CodexProvider) LoopCommand(ctx context.Context, prompt, workDir string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, p.cliPath, "exec", "--json", "--yolo", "--skip-git-repo-check", "-C", workDir, "-")
+	args := []string{"exec", "--json", "--yolo", "--skip-git-repo-check"}
+	if p.model != "" {
+		args = append(args, "--model", p.model)
+	}
+	args = append(args, "-C", workDir, "-")
+	cmd := exec.CommandContext(ctx, p.cliPath, args...)
 	cmd.Dir = workDir
 	cmd.Stdin = strings.NewReader(prompt)
 	return cmd

@@ -25,6 +25,7 @@ type EvaluationConfig struct {
 	MaxRetries    int    `yaml:"maxRetries"`     // retry attempts per story on failure, default 3
 	Mode          string `yaml:"mode"`           // evaluator output style, default "caveman"
 	Provider      string `yaml:"provider"`       // defaults to same as main agent provider
+	Model         string `yaml:"model"`          // model override for evaluators (e.g. "claude-sonnet-4-5-20250514")
 }
 
 // DefaultEvaluation returns sensible defaults for evaluation config.

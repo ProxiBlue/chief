@@ -11,6 +11,7 @@ import (
 
 type OpenCodeProvider struct {
 	cliPath string
+	model   string
 }
 
 func NewOpenCodeProvider(cliPath string) *OpenCodeProvider {
@@ -24,8 +25,16 @@ func (p *OpenCodeProvider) Name() string { return "OpenCode" }
 
 func (p *OpenCodeProvider) CLIPath() string { return p.cliPath }
 
+// SetModel implements loop.Provider.
+func (p *OpenCodeProvider) SetModel(model string) { p.model = model }
+
 func (p *OpenCodeProvider) LoopCommand(ctx context.Context, prompt, workDir string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, p.cliPath, "run", "--format", "json", prompt)
+	args := []string{"run", "--format", "json"}
+	if p.model != "" {
+		args = append(args, "--model", p.model)
+	}
+	args = append(args, prompt)
+	cmd := exec.CommandContext(ctx, p.cliPath, args...)
 	cmd.Dir = workDir
 	return cmd
 }

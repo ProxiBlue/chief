@@ -465,12 +465,31 @@ func runTUIWithOptions(opts *TUIOptions) {
 		app.EnableEvaluation()
 	}
 
-	// If evaluation config specifies a different provider, resolve and wire it
-	if appCfg := app.Config(); appCfg != nil && appCfg.Evaluation.Enabled && appCfg.Evaluation.Provider != "" {
-		evalProvider, err := agent.Resolve(appCfg.Evaluation.Provider, "", appCfg)
-		if err == nil {
-			if err := agent.CheckInstalled(evalProvider); err == nil {
-				app.SetEvalProvider(evalProvider)
+	// If evaluation config specifies a different provider or model, resolve and wire it
+	if appCfg := app.Config(); appCfg != nil && appCfg.Evaluation.Enabled {
+		if appCfg.Evaluation.Provider != "" {
+			evalProvider, err := agent.Resolve(appCfg.Evaluation.Provider, "", appCfg)
+			if err == nil {
+				if err := agent.CheckInstalled(evalProvider); err == nil {
+					if appCfg.Evaluation.Model != "" {
+						evalProvider.SetModel(appCfg.Evaluation.Model)
+					}
+					app.SetEvalProvider(evalProvider)
+				}
+			}
+		} else if appCfg.Evaluation.Model != "" {
+			// No custom provider but a model override — apply to the main provider
+			// Resolve a fresh provider so the main loop's provider is unaffected
+			mainProvider := appCfg.Agent.Provider
+			if mainProvider == "" {
+				mainProvider = "claude"
+			}
+			evalProvider, err := agent.Resolve(mainProvider, "", appCfg)
+			if err == nil {
+				if err := agent.CheckInstalled(evalProvider); err == nil {
+					evalProvider.SetModel(appCfg.Evaluation.Model)
+					app.SetEvalProvider(evalProvider)
+				}
 			}
 		}
 	}

@@ -17,4 +17,7 @@ type Provider interface {
 	CleanOutput(output string) string
 	ParseLine(line string) *Event
 	LogFileName() string
+	// SetModel overrides the model used by the provider CLI.
+	// When empty, the provider's default model is used.
+	SetModel(model string)
 }

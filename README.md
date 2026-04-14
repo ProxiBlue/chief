@@ -84,7 +84,10 @@ evaluation:
   passThreshold: 7      # minimum score per criterion (1-10)
   maxRetries: 3         # retry attempts on failure
   provider: ""          # LLM provider (defaults to main provider)
+  model: ""             # model override for evaluators (e.g. "claude-sonnet-4-5-20250514")
 ```
+
+The `model` option lets you use a cheaper or different model for evaluators while keeping the main generator on a more capable model. For example, generate with Opus and evaluate with Sonnet to reduce costs. When left blank, evaluators use the provider's default model.
 
 ### Architecture
 

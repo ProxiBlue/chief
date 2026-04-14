@@ -12,6 +12,7 @@ import (
 // CursorProvider implements loop.Provider for the Cursor CLI (agent).
 type CursorProvider struct {
 	cliPath string
+	model   string
 }
 
 // NewCursorProvider returns a Provider for the Cursor CLI.
@@ -29,16 +30,23 @@ func (p *CursorProvider) Name() string { return "Cursor" }
 // CLIPath implements loop.Provider.
 func (p *CursorProvider) CLIPath() string { return p.cliPath }
 
+// SetModel implements loop.Provider.
+func (p *CursorProvider) SetModel(model string) { p.model = model }
+
 // LoopCommand implements loop.Provider.
 // Prompt is supplied via stdin; Cursor CLI reads it when -p has no argument.
 func (p *CursorProvider) LoopCommand(ctx context.Context, prompt, workDir string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, p.cliPath,
+	args := []string{
 		"-p",
 		"--output-format", "stream-json",
 		"--force",
 		"--workspace", workDir,
 		"--trust",
-	)
+	}
+	if p.model != "" {
+		args = append(args, "--model", p.model)
+	}
+	cmd := exec.CommandContext(ctx, p.cliPath, args...)
 	cmd.Dir = workDir
 	cmd.Stdin = strings.NewReader(prompt)
 	return cmd
