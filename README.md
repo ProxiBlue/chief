@@ -52,6 +52,19 @@ chief --eval
 
 After each story is committed, multiple independent evaluator agents score the output on a 1-10 scale, deliberate on findings, and produce a pass/fail verdict. Stories that fail are automatically retried.
 
+### Why Use Eval Over the Standard Loop?
+
+In the standard loop, the generator agent is the only judge of its own work. It commits code and moves to the next story. If it *thinks* it implemented a feature but didn't (hallucination), or misunderstood an acceptance criterion, nothing catches it. The loop trusts the agent completely.
+
+The eval loop adds independent review after every commit. The concrete benefits:
+
+- **Catches missing features** — The generator often claims "done" when it only partially implemented something. Evaluators read the diff and flag what's actually missing.
+- **Catches misunderstood requirements** — The generator may interpret a criterion differently than intended. Multiple evaluators comparing notes in deliberation reduces this.
+- **Forces completion over speed** — Without eval, the loop optimises for moving through stories fast. With eval, it can't advance until criteria are actually met.
+- **Creates an audit trail** — Every evaluation is persisted to `.evaluation/` with full scores, reasoning, and deliberation transcripts. You can review exactly why a story passed or failed.
+
+**The tradeoff:** More LLM calls (3 evaluators + deliberation per story, plus retries), so it's slower and more expensive. But the output quality is measurably higher — in [side-by-side testing](https://github.com/ProxiBlue/chiefloopEVALexample), the eval version implemented all core game mechanics (terrain, landing pads, scoring, levels), while the standard version was missing core features entirely.
+
 ### How It Works
 
 1. The generator agent commits code for a user story
