@@ -169,7 +169,7 @@ This makes it easy to understand why a story was rejected without having to dig 
 
 ### Examples
 
-See [chiefloopEVALexample](https://github.com/ProxiBlue/chiefloopEVALexample) for a side-by-side comparison of the same task (a Mage Lander game) built with and without evaluation enabled.
+See [chiefloopEVALexample](https://github.com/ProxiBlue/chiefloopEVALexample) for a side-by-side comparison of the same task (a Mage Lander game) built with and without evaluation enabled. **[▶ Play the eval-built version](https://proxiblue.github.io/chiefloopEVALexample/test-chief-adverserial/)**
 
 ## Custom Prompts
 
