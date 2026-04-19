@@ -73,7 +73,8 @@ type Manager struct {
 	provider       Provider
 	baseDir        string         // Project root directory (for CLAUDE.md etc.)
 	config         *config.Config // Project config for post-completion actions
-	evalProvider   Provider       // Provider for evaluation agents (may differ from main)
+	evalProvider       Provider // Provider for evaluation agents (may differ from main)
+	secEvalProvider    Provider // Provider for security evaluation agents (may differ from eval)
 	mu             sync.RWMutex
 	wg             sync.WaitGroup
 	onComplete     func(prdName string)                  // Callback when a PRD completes
@@ -125,6 +126,13 @@ func (m *Manager) SetEvalProvider(provider Provider) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.evalProvider = provider
+}
+
+// SetSecurityEvalProvider sets the provider used for security evaluation agents.
+func (m *Manager) SetSecurityEvalProvider(provider Provider) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.secEvalProvider = provider
 }
 
 // SetBaseDir sets the project root directory so Claude runs from there and picks up CLAUDE.md.
@@ -255,6 +263,17 @@ func (m *Manager) Start(name string) error {
 			evalProvider = m.provider // default to same provider
 		}
 		instance.Loop.SetEvalConfig(&m.config.Evaluation, evalProvider)
+	}
+	// Wire security evaluation config if enabled (independent of standard eval)
+	if m.config != nil && m.config.SecurityEvaluation.Enabled {
+		secProvider := m.secEvalProvider
+		if secProvider == nil {
+			secProvider = m.evalProvider // fall back to eval provider, then main
+		}
+		if secProvider == nil {
+			secProvider = m.provider
+		}
+		instance.Loop.SetSecurityEvalConfig(&m.config.SecurityEvaluation, secProvider)
 	}
 	m.mu.RUnlock()
 	instance.ctx, instance.cancel = context.WithCancel(context.Background())

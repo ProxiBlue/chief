@@ -83,6 +83,7 @@ func runDeliberator(ctx context.Context, provider AgentProvider, workDir string,
 }
 
 // parseDeliberationOutput extracts a DeliberationResponse from agent output.
+// It captures all text before the JSON as the model's discussion/reasoning.
 func parseDeliberationOutput(lines []string, evaluatorID int, provider AgentProvider) (*DeliberationResponse, error) {
 	var allText strings.Builder
 	for _, line := range lines {
@@ -93,20 +94,38 @@ func parseDeliberationOutput(lines []string, evaluatorID int, provider AgentProv
 		}
 	}
 
-	resp, err := extractDeliberationJSON(allText.String(), evaluatorID)
+	fullText := allText.String()
+	resp, err := extractDeliberationJSON(fullText, evaluatorID)
 	if err != nil {
 		for _, line := range lines {
 			if resp, err := extractDeliberationJSON(line, evaluatorID); err == nil {
 				return resp, nil
 			}
 		}
-		preview := allText.String()
+		preview := fullText
 		if len(preview) > 500 {
 			preview = preview[:500] + "...(truncated)"
 		}
 		return nil, fmt.Errorf("no valid deliberation JSON found. Preview:\n%s", preview)
 	}
+
+	// Extract discussion text: everything before the JSON object
+	resp.Discussion = extractDiscussion(fullText)
 	return resp, nil
+}
+
+// extractDiscussion extracts the reasoning text before the JSON in deliberation output.
+func extractDiscussion(text string) string {
+	stripped := stripMarkdownFences(text)
+	jsonStart := strings.Index(stripped, "{")
+	if jsonStart <= 0 {
+		return ""
+	}
+	discussion := strings.TrimSpace(stripped[:jsonStart])
+	// Remove any trailing markdown fence artifacts
+	discussion = strings.TrimSuffix(discussion, "```")
+	discussion = strings.TrimSpace(discussion)
+	return discussion
 }
 
 // extractDeliberationJSON tries to extract a deliberation JSON from text.

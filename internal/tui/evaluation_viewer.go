@@ -182,8 +182,17 @@ func (v *EvaluationViewer) render() []string {
 	if len(r.Deliberation) > 0 {
 		lines = append(lines, headerStyle.Render("Deliberation"))
 		lines = append(lines, strings.Repeat("─", min(v.width-4, 60)))
+		discussionStyle := lipgloss.NewStyle().Foreground(TextColor)
 		for _, d := range r.Deliberation {
-			lines = append(lines, fmt.Sprintf("  Evaluator %d:", d.EvaluatorID))
+			lines = append(lines, headerStyle.Render(fmt.Sprintf("  Evaluator %d:", d.EvaluatorID)))
+			// Show model discussion/reasoning if present
+			if d.Discussion != "" {
+				lines = append(lines, "")
+				for _, dLine := range strings.Split(d.Discussion, "\n") {
+					lines = append(lines, discussionStyle.Render("    "+dLine))
+				}
+				lines = append(lines, "")
+			}
 			if len(d.Agree) > 0 {
 				lines = append(lines, fmt.Sprintf("    Agrees with: %v", d.Agree))
 			}

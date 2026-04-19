@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,7 +39,10 @@ func (a *evalProviderAdapter) ParseLine(line string) *evaluation.AgentEvent {
 	}
 	// Only include assistant text for score extraction — tool results contain
 	// file contents (HTML, code) with braces that break JSON parsing.
-	isText := event.Type == EventAssistantText
+	// Include EventStoryDone too: when the evaluator outputs its JSON scores
+	// and <chief-done/> in the same text block, the parser returns StoryDone
+	// but the Text field still contains the scores JSON we need to extract.
+	isText := event.Type == EventAssistantText || event.Type == EventStoryDone
 	return &evaluation.AgentEvent{IsText: isText, Text: event.Text}
 }
 
@@ -81,9 +85,11 @@ type Loop struct {
 	watchdogTimeout time.Duration
 	sawStoryDone    bool
 	currentStoryID  string
-	evalConfig      *config.EvaluationConfig
-	evalProvider    Provider
-	evalRetries     map[string]int
+	evalConfig          *config.EvaluationConfig
+	evalProvider        Provider
+	evalRetries         map[string]int
+	secEvalConfig       *config.SecurityEvaluationConfig
+	secEvalProvider     Provider
 }
 
 // NewLoop creates a new Loop instance.
@@ -260,18 +266,52 @@ func (l *Loop) Run(ctx context.Context) error {
 			l.mu.Lock()
 			evalCfg := l.evalConfig
 			evalProv := l.evalProvider
+			secEvalCfg := l.secEvalConfig
+			secEvalProv := l.secEvalProvider
 			l.mu.Unlock()
 
-			if evalCfg != nil && evalCfg.Enabled && evalProv != nil {
+			// Determine if any evaluation should run (standard eval, security eval, or both)
+			evalEnabled := evalCfg != nil && evalCfg.Enabled && evalProv != nil
+			secEnabled := secEvalCfg != nil && secEvalCfg.Enabled
+
+			if evalEnabled || secEnabled {
 				// Run adversarial evaluation before marking done
 				workDir := l.effectiveWorkDir()
 				prdName := prd.ExtractPRDName(l.prdPath)
+
+				// Build security eval options if security evaluation is enabled
+				var secOpts *evaluation.SecurityEvalOptions
+				if secEnabled {
+					secProv := secEvalProv
+					if secProv == nil && evalProv != nil {
+						secProv = evalProv
+					}
+					if secProv == nil {
+						secProv = l.provider
+					}
+					secOpts = &evaluation.SecurityEvalOptions{
+						Config:   secEvalCfg,
+						Provider: &evalProviderAdapter{p: secProv},
+					}
+				}
+
+				// If only security eval is enabled (no standard eval), create a minimal eval config
+				if !evalEnabled {
+					evalCfg = &config.EvaluationConfig{
+						Enabled:       true,
+						Agents:        0, // no standard evaluators
+						PassThreshold: secEvalCfg.PassThreshold,
+						MaxRetries:    secEvalCfg.MaxRetries,
+					}
+					evalProv = l.provider
+				}
+
 				adapter := &evalProviderAdapter{p: evalProv}
 				progress := func(sid, msg string) {
 					l.events <- Event{Type: EventEvaluationProgress, StoryID: sid, Text: msg}
 				}
 				l.events <- Event{Type: EventEvaluationStart, StoryID: storyID, Text: "Starting adversarial evaluation"}
-				result, err := evaluation.RunEvaluation(ctx, adapter, workDir, l.prdPath, storyID, evalCfg, progress)
+				result, err := evaluation.RunEvaluation(ctx, adapter, workDir, l.prdPath, storyID, evalCfg, secOpts, progress)
 				if err != nil {
 					l.events <- Event{Type: EventEvaluationFail, StoryID: storyID, Text: "Evaluation error: " + err.Error()}
 					// On evaluation error, mark done to avoid infinite loop
@@ -292,13 +332,32 @@ func (l *Loop) Run(ctx context.Context) error {
 					result.Attempt = retries
 					result.MaxAttempts = evalCfg.MaxRetries
 					_ = evaluation.WriteFeedback(l.prdPath, prdName, storyID, result, evalCfg.PassThreshold)
-					l.events <- Event{Type: EventEvaluationFail, StoryID: storyID, Text: fmt.Sprintf("Evaluation FAILED (attempt %d/%d)", retries, evalCfg.MaxRetries)}
+
+					// Build failure summary with details of which criteria failed
+					failText := fmt.Sprintf("Evaluation FAILED (attempt %d/%d)", retries, evalCfg.MaxRetries)
+					var failDetails []string
+					threshold := evalCfg.PassThreshold
+					if threshold <= 0 {
+						threshold = 7
+					}
+					for _, s := range result.FinalScores {
+						if s.Score < threshold {
+							detail := fmt.Sprintf("%s [%d/10]", s.Criterion, s.Score)
+							if s.Failure != "" {
+								detail += ": " + s.Failure
+							}
+							failDetails = append(failDetails, detail)
+						}
+					}
+					if len(failDetails) > 0 {
+						failText += "\n  Failed criteria:\n  - " + strings.Join(failDetails, "\n  - ")
+					}
+					l.events <- Event{Type: EventEvaluationFail, StoryID: storyID, Text: failText}
 
 					if retries >= evalCfg.MaxRetries {
-						// Exhausted retries — mark done anyway, clean up stale feedback
-						_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
-						evaluation.CleanFeedback(l.prdPath, prdName, storyID)
-						l.events <- Event{Type: EventEvaluationMaxRetries, StoryID: storyID, Text: "Max evaluation retries reached, marking done"}
+						// Exhausted retries — pause the story for human review
+						_ = prd.SetStoryStatus(l.prdPath, storyID, "todo")
+						l.events <- Event{Type: EventEvaluationMaxRetries, StoryID: storyID, Text: "Max evaluation retries reached, paused awaiting human intervention"}
 					}
 					// Otherwise: story stays not-done, next iteration will retry it
 				}
@@ -685,4 +744,13 @@ func (l *Loop) SetEvalConfig(cfg *config.EvaluationConfig, evalProvider Provider
 	if l.evalRetries == nil {
 		l.evalRetries = make(map[string]int)
 	}
+}
+
+// SetSecurityEvalConfig configures security evaluation independently of standard evaluation.
+// When cfg is non-nil and Enabled is true, security evaluators run alongside (or instead of) standard evaluators.
+func (l *Loop) SetSecurityEvalConfig(cfg *config.SecurityEvaluationConfig, provider Provider) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.secEvalConfig = cfg
+	l.secEvalProvider = provider
 }

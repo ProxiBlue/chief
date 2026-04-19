@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/minicodemonkey/chief/embed"
 	"github.com/minicodemonkey/chief/internal/agent"
 	"github.com/minicodemonkey/chief/internal/cmd"
 	"github.com/minicodemonkey/chief/internal/config"
@@ -22,19 +23,26 @@ var Version = "0.8.0-proxiblue"
 
 // TUIOptions holds the parsed command-line options for the TUI
 type TUIOptions struct {
-	PRDPath       string
-	MaxIterations int
-	Verbose       bool
-	Merge         bool
-	Force         bool
-	NoRetry       bool
-	Agent         string // --agent claude|codex|opencode|cursor
-	AgentPath     string // --agent-path
-	Eval          bool   // --eval to enable adversarial evaluation
-	EvalModel     string // --eval-model to override model for evaluators
+	PRDPath            string
+	MaxIterations      int
+	Verbose            bool
+	Merge              bool
+	Force              bool
+	NoRetry            bool
+	Agent              string // --agent claude|codex|opencode|cursor
+	AgentPath          string // --agent-path
+	Eval               bool   // --eval to enable adversarial evaluation
+	EvalModel          string // --eval-model to override model for evaluators
+	SecurityEval       bool   // --security-eval to enable security evaluation independently
+	SecurityEvalModel  string // --security-eval-model to override model for security evaluators
 }
 
 func main() {
+	// Set base directory for prompt overrides (.chief/prompts/)
+	if cwd, err := os.Getwd(); err == nil {
+		embed.SetBaseDir(cwd)
+	}
+
 	// Handle subcommands first
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -199,6 +207,15 @@ func parseTUIFlags() *TUIOptions {
 			}
 		case strings.HasPrefix(arg, "--eval-model="):
 			opts.EvalModel = strings.TrimPrefix(arg, "--eval-model=")
+		case arg == "--security-eval":
+			opts.SecurityEval = true
+		case arg == "--security-eval-model":
+			if i+1 < len(os.Args) {
+				i++
+				opts.SecurityEvalModel = os.Args[i]
+			}
+		case strings.HasPrefix(arg, "--security-eval-model="):
+			opts.SecurityEvalModel = strings.TrimPrefix(arg, "--security-eval-model=")
 		case arg == "--agent" || arg == "--agent-path":
 			i++ // skip value (already parsed by parseAgentFlags)
 		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--agent-path="):
@@ -473,10 +490,22 @@ func runTUIWithOptions(opts *TUIOptions) {
 		app.EnableEvaluation()
 	}
 
+	// Enable security evaluation if requested (independent of --eval)
+	if opts.SecurityEval {
+		app.EnableSecurityEvaluation()
+	}
+
 	// CLI --eval-model overrides config
 	if opts.EvalModel != "" {
 		if appCfg := app.Config(); appCfg != nil {
 			appCfg.Evaluation.Model = opts.EvalModel
+		}
+	}
+
+	// CLI --security-eval-model overrides config
+	if opts.SecurityEvalModel != "" {
+		if appCfg := app.Config(); appCfg != nil {
+			appCfg.SecurityEvaluation.Model = opts.SecurityEvalModel
 		}
 	}
 
@@ -504,6 +533,33 @@ func runTUIWithOptions(opts *TUIOptions) {
 				if err := agent.CheckInstalled(evalProvider); err == nil {
 					evalProvider.SetModel(appCfg.Evaluation.Model)
 					app.SetEvalProvider(evalProvider)
+				}
+			}
+		}
+	}
+
+	// If security evaluation config specifies a different provider or model, resolve and wire it
+	if appCfg := app.Config(); appCfg != nil && appCfg.SecurityEvaluation.Enabled {
+		if appCfg.SecurityEvaluation.Provider != "" {
+			secProvider, err := agent.Resolve(appCfg.SecurityEvaluation.Provider, "", appCfg)
+			if err == nil {
+				if err := agent.CheckInstalled(secProvider); err == nil {
+					if appCfg.SecurityEvaluation.Model != "" {
+						secProvider.SetModel(appCfg.SecurityEvaluation.Model)
+					}
+					app.SetSecurityEvalProvider(secProvider)
+				}
+			}
+		} else if appCfg.SecurityEvaluation.Model != "" {
+			mainProvider := appCfg.Agent.Provider
+			if mainProvider == "" {
+				mainProvider = "claude"
+			}
+			secProvider, err := agent.Resolve(mainProvider, "", appCfg)
+			if err == nil {
+				if err := agent.CheckInstalled(secProvider); err == nil {
+					secProvider.SetModel(appCfg.SecurityEvaluation.Model)
+					app.SetSecurityEvalProvider(secProvider)
 				}
 			}
 		}
@@ -572,6 +628,8 @@ Global Options:
   --no-retry                Disable auto-retry on agent crashes
   --eval                    Enable adversarial evaluation after each story
   --eval-model <model>      Model override for evaluator agents (e.g. claude-haiku-4-5-20251001)
+  --security-eval           Enable security evaluation (OWASP Top 10), independent of --eval
+  --security-eval-model <m> Model override for security evaluator agents
   --verbose                 Show raw agent output in log
   --merge                   Auto-merge progress on conversion conflicts
   --force                   Auto-overwrite on conversion conflicts
@@ -585,6 +643,26 @@ Edit Options:
 Positional Arguments:
   <name>                    PRD name (loads .chief/prds/<name>/prd.md)
   <path/to/prd.md>        Direct path to a prd.md file
+
+Custom Prompts:
+  Chief uses built-in prompts for agents, evaluators, and PRD generation.
+  You can override any prompt by placing a file in .chief/prompts/:
+
+    .chief/prompts/prompt.txt                  Agent instructions
+    .chief/prompts/init_prompt.txt             PRD generator
+    .chief/prompts/edit_prompt.txt             PRD editor
+    .chief/prompts/evaluator_prompt.txt        Acceptance criteria evaluator
+    .chief/prompts/security_evaluator_prompt.txt  Security evaluator (OWASP)
+    .chief/prompts/deliberation_prompt.txt     Deliberation round
+    .chief/prompts/detect_setup_prompt.txt     Project setup detection
+
+  Example files (.example) are provided in .chief/prompts/ showing the
+  defaults. Copy one to the name without .example to override it:
+
+    cp .chief/prompts/security_evaluator_prompt.txt.example \
+       .chief/prompts/security_evaluator_prompt.txt
+
+  Prompts use {{PLACEHOLDER}} syntax for variable substitution.
 
 Examples:
   chief                     Launch TUI with default PRD (.chief/prds/main/)

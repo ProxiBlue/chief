@@ -392,6 +392,25 @@ func (a *App) SetEvalProvider(provider loop.Provider) {
 	}
 }
 
+// EnableSecurityEvaluation enables security evaluation with default config.
+func (a *App) EnableSecurityEvaluation() {
+	if a.config == nil {
+		a.config = config.Default()
+	}
+	a.config.SecurityEvaluation.Enabled = true
+	a.config.ApplySecurityEvaluationDefaults()
+	if a.manager != nil {
+		a.manager.SetConfig(a.config)
+	}
+}
+
+// SetSecurityEvalProvider sets a different agent provider for security evaluation agents.
+func (a *App) SetSecurityEvalProvider(provider loop.Provider) {
+	if a.manager != nil {
+		a.manager.SetSecurityEvalProvider(provider)
+	}
+}
+
 // DisableRetry disables automatic retry on Claude crashes.
 func (a *App) DisableRetry() {
 	if a.manager != nil {

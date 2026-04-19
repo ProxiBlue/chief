@@ -96,6 +96,64 @@ func RunEvaluator(ctx context.Context, id int, provider AgentProvider, workDir s
 	}, nil
 }
 
+// RunSecurityEvaluator invokes the security-focused evaluator agent and returns its scored results.
+// passThreshold is the minimum score for a criterion to pass (typically 7).
+func RunSecurityEvaluator(ctx context.Context, id int, provider AgentProvider, workDir string, story StoryContext, passThreshold int) (*EvaluatorResult, error) {
+	prompt := BuildSecurityEvaluatorPrompt(id, story)
+
+	cmd := provider.LoopCommand(ctx, prompt, workDir)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start security evaluator %d: %w", id, err)
+	}
+
+	var lines []string
+	scanner := bufio.NewScanner(stdout)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("security evaluator %d scanner: %w", id, err)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("security evaluator %d exited: %w", id, err)
+	}
+
+	scores, err := parseEvaluatorOutput(lines, provider)
+	if err != nil {
+		return nil, fmt.Errorf("parse security evaluator %d output: %w", id, err)
+	}
+
+	if passThreshold <= 0 {
+		passThreshold = 7
+	}
+	pass := true
+	for _, s := range scores {
+		if s.Score < passThreshold {
+			pass = false
+			break
+		}
+	}
+
+	return &EvaluatorResult{
+		EvaluatorID: id,
+		Scores:      scores,
+		Pass:        pass,
+	}, nil
+}
+
 // parseEvaluatorOutput extracts criterion scores from agent output.
 func parseEvaluatorOutput(lines []string, provider AgentProvider) ([]CriterionScore, error) {
 	// First try: parse through the provider's parser to extract assistant text
@@ -130,21 +188,65 @@ func parseEvaluatorOutput(lines []string, provider AgentProvider) ([]CriterionSc
 
 // extractScoresJSON tries to extract a scores JSON object from text.
 // Strips markdown code fences and uses string-aware brace matching.
+// It first looks for {"scores" to find the right JSON object, then falls back
+// to trying every { in the text.
 func extractScoresJSON(text string) ([]CriterionScore, error) {
 	text = stripMarkdownFences(text)
 
-	start := strings.Index(text, "{")
-	if start < 0 {
-		return nil, fmt.Errorf("no JSON object found")
+	// Strategy 1: Look for {"scores" directly — most reliable
+	if scores, err := tryExtractFromPattern(text, `{"scores"`); err == nil {
+		return scores, nil
 	}
 
-	end := findMatchingBrace(text, start)
-	if end < 0 {
-		return nil, fmt.Errorf("no complete JSON object found")
+	// Strategy 2: Look for { "scores" (with whitespace)
+	if scores, err := tryExtractFromPattern(text, `{ "scores"`); err == nil {
+		return scores, nil
 	}
 
+	// Strategy 3: Try every { in the text, in case the scores object isn't first
+	searchFrom := 0
+	for {
+		idx := strings.Index(text[searchFrom:], "{")
+		if idx < 0 {
+			break
+		}
+		start := searchFrom + idx
+		end := findMatchingBrace(text, start)
+		if end > 0 {
+			if scores, err := parseScoresObject(text[start:end]); err == nil {
+				return scores, nil
+			}
+		}
+		searchFrom = start + 1
+	}
+
+	return nil, fmt.Errorf("no JSON object found")
+}
+
+// tryExtractFromPattern looks for a specific pattern in text and tries to parse
+// the JSON object starting at each occurrence.
+func tryExtractFromPattern(text, pattern string) ([]CriterionScore, error) {
+	searchFrom := 0
+	for {
+		idx := strings.Index(text[searchFrom:], pattern)
+		if idx < 0 {
+			return nil, fmt.Errorf("pattern %q not found", pattern)
+		}
+		start := searchFrom + idx
+		end := findMatchingBrace(text, start)
+		if end > 0 {
+			if scores, err := parseScoresObject(text[start:end]); err == nil {
+				return scores, nil
+			}
+		}
+		searchFrom = start + 1
+	}
+}
+
+// parseScoresObject tries to unmarshal a JSON string as an evaluator output with scores.
+func parseScoresObject(jsonStr string) ([]CriterionScore, error) {
 	var output evaluatorOutput
-	if err := json.Unmarshal([]byte(text[start:end]), &output); err != nil {
+	if err := json.Unmarshal([]byte(jsonStr), &output); err != nil {
 		return nil, err
 	}
 

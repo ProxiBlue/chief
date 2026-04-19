@@ -21,14 +21,16 @@ You are evaluator {{EVALUATOR_ID}} in a deliberation round. Review all evaluator
 1. Review the other evaluators' scores and failure descriptions
 2. Challenge any false positives (scores too low for things that actually work)
 3. Agree with legitimate findings
-4. Raise any new issues the others missed
+4. Raise new issues ONLY if they relate to the code diff and the story's acceptance criteria
+
+Do NOT raise meta-concerns about the evaluation process itself (e.g. whether other evaluators provided enough evidence, whether scores are similar). Focus exclusively on the code.
 
 ## Output Format
 
-Output ONLY valid JSON. No prose. No markdown. Just this:
+Output your structured verdict as a single JSON object:
 
 {"agree": [1, 3], "challenges": [{"criterion": "the criterion text that was wrongly scored", "reason": "why the score is wrong"}], "newIssues": [{"criterion": "criterion text", "score": 4, "failure": "file:line - description"}]}
 
-Be precise. No filler. Challenge bad scores. Surface real issues.
+New issues MUST reference a specific file and line number in the code diff. Issues without code references will be discarded.
 
 After outputting the JSON, output <chief-done/> to signal completion.

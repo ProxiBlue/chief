@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/minicodemonkey/chief/internal/config"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -17,13 +18,23 @@ const maxDiffSize = 200_000 // ~200KB
 // ProgressFunc is a callback for reporting evaluation progress.
 type ProgressFunc func(storyID, message string)
 
+// SecurityEvalOptions holds optional security evaluation configuration.
+// When nil or Enabled is false, no security evaluators run.
+type SecurityEvalOptions struct {
+	Config   *SecurityConfig
+	Provider AgentProvider // may differ from the main eval provider
+}
+
+// SecurityConfig is a convenience alias for the security evaluation config.
+type SecurityConfig = config.SecurityEvaluationConfig
+
 // RunEvaluation orchestrates the full evaluation cycle for a completed story:
 // 1. Gather story context + diff
-// 2. Run N evaluators in parallel
+// 2. Run N evaluators in parallel (+ security evaluators if configured)
 // 3. Run deliberation round
 // 4. Compute final verdict
 // 5. Persist results
-func RunEvaluation(ctx context.Context, provider AgentProvider, workDir, prdPath, storyID string, cfg *Config, progress ProgressFunc) (*EvaluationResult, error) {
+func RunEvaluation(ctx context.Context, provider AgentProvider, workDir, prdPath, storyID string, cfg *Config, secOpts *SecurityEvalOptions, progress ProgressFunc) (*EvaluationResult, error) {
 	progress(storyID, "Starting adversarial evaluation")
 
 	// Load story
@@ -64,11 +75,27 @@ func RunEvaluation(ctx context.Context, provider AgentProvider, workDir, prdPath
 		numAgents = 3
 	}
 
-	// Phase 1: Run evaluators in parallel
-	progress(storyID, fmt.Sprintf("Running %d evaluators in parallel", numAgents))
+	// Determine security evaluator count
+	runSecurity := secOpts != nil && secOpts.Config != nil && secOpts.Config.Enabled
+	numSecAgents := 0
+	if runSecurity {
+		numSecAgents = secOpts.Config.Agents
+		if numSecAgents <= 0 {
+			numSecAgents = 1
+		}
+	}
+
+	// Phase 1: Run evaluators in parallel (+ security evaluators if enabled)
+	if runSecurity {
+		progress(storyID, fmt.Sprintf("Running %d evaluators + %d security evaluator(s) in parallel", numAgents, numSecAgents))
+	} else {
+		progress(storyID, fmt.Sprintf("Running %d evaluators in parallel", numAgents))
+	}
 
 	results := make([]*EvaluatorResult, numAgents)
 	evalErrs := make([]error, numAgents)
+	secResults := make([]*EvaluatorResult, numSecAgents)
+	secErrs := make([]error, numSecAgents)
 	var wg sync.WaitGroup
 
 	for i := 0; i < numAgents; i++ {
@@ -84,6 +111,32 @@ func RunEvaluation(ctx context.Context, provider AgentProvider, workDir, prdPath
 			progress(storyID, fmt.Sprintf("Evaluator %d done (pass=%v)", id+1, result.Pass))
 		}(i)
 	}
+
+	// Run security evaluators in parallel (with their own provider if configured)
+	if runSecurity {
+		secProvider := secOpts.Provider
+		if secProvider == nil {
+			secProvider = provider
+		}
+		secThreshold := secOpts.Config.PassThreshold
+		if secThreshold <= 0 {
+			secThreshold = 7
+		}
+		for i := 0; i < numSecAgents; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				evalID := numAgents + id + 1
+				result, err := RunSecurityEvaluator(ctx, evalID, secProvider, workDir, storyCtx, secThreshold)
+				if err != nil {
+					secErrs[id] = err
+					return
+				}
+				secResults[id] = result
+				progress(storyID, fmt.Sprintf("Security evaluator %d done (pass=%v)", id+1, result.Pass))
+			}(i)
+		}
+	}
 	wg.Wait()
 
 	// Collect valid results
@@ -93,6 +146,13 @@ func RunEvaluation(ctx context.Context, provider AgentProvider, workDir, prdPath
 			validResults = append(validResults, r)
 		} else if evalErrs[i] != nil {
 			progress(storyID, fmt.Sprintf("Evaluator %d failed: %s", i+1, evalErrs[i]))
+		}
+	}
+	for i, r := range secResults {
+		if r != nil {
+			validResults = append(validResults, r)
+		} else if secErrs[i] != nil {
+			progress(storyID, fmt.Sprintf("Security evaluator %d failed: %s", i+1, secErrs[i]))
 		}
 	}
 
@@ -110,6 +170,7 @@ func RunEvaluation(ctx context.Context, provider AgentProvider, workDir, prdPath
 	}
 
 	// Phase 3: Compute final scores and verdict
+	// Use the stricter threshold between eval and security eval
 	finalScores := computeFinalScores(validResults, deliberation, cfg)
 	pass := verdictPass(finalScores, cfg)
 

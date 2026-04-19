@@ -41,6 +41,7 @@ type DeliberationNewIssue struct {
 // DeliberationResponse is one evaluator's response during the deliberation round.
 type DeliberationResponse struct {
 	EvaluatorID int                     `json:"evaluatorId"`
+	Discussion  string                  `json:"discussion,omitempty"`
 	Agree       []int                   `json:"agree"`
 	Challenges  []DeliberationChallenge `json:"challenges"`
 	NewIssues   []DeliberationNewIssue  `json:"newIssues"`

@@ -40,6 +40,7 @@ func (m *mockProvider) LoopCommand(ctx context.Context, _, workDir string) *exec
 }
 
 func (m *mockProvider) CleanOutput(output string) string { return output }
+func (m *mockProvider) SetModel(_ string)                {}
 
 // testProvider is used by loop tests so they don't need to run a real CLI.
 var testProvider Provider = &mockProvider{}

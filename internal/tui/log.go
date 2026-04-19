@@ -665,16 +665,31 @@ func (l *LogViewer) renderEvaluation(entry LogEntry) []string {
 	}
 
 	style := lipgloss.NewStyle().Foreground(color).Bold(entry.Type != loop.EventEvaluationProgress)
+	detailStyle := lipgloss.NewStyle().Foreground(color)
 	text := entry.Text
 	if text == "" {
 		text = "Evaluation"
 	}
 
-	// Prefix with story ID for context
+	// Split multiline text so detail lines render properly in the log
+	textLines := strings.Split(text, "\n")
+	var result []string
+
+	// First line gets the icon and optional story ID prefix
+	firstLine := textLines[0]
 	if entry.StoryID != "" && entry.Type != loop.EventEvaluationProgress {
 		storyStyle := lipgloss.NewStyle().Foreground(MutedColor)
-		return []string{style.Render(icon+" ") + storyStyle.Render("["+entry.StoryID+"] ") + style.Render(text)}
+		result = append(result, style.Render(icon+" ")+storyStyle.Render("["+entry.StoryID+"] ")+style.Render(firstLine))
+	} else {
+		result = append(result, style.Render(icon+" "+firstLine))
 	}
 
-	return []string{style.Render(icon + " " + text)}
+	// Subsequent lines are rendered as detail lines
+	for _, line := range textLines[1:] {
+		if line != "" {
+			result = append(result, detailStyle.Render("     "+line))
+		}
+	}
+
+	return result
 }

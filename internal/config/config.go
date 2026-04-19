@@ -11,10 +11,11 @@ const configFile = ".chief/config.yaml"
 
 // Config holds project-level settings for Chief.
 type Config struct {
-	Worktree   WorktreeConfig   `yaml:"worktree"`
-	OnComplete OnCompleteConfig `yaml:"onComplete"`
-	Agent      AgentConfig      `yaml:"agent"`
-	Evaluation EvaluationConfig `yaml:"evaluation"`
+	Worktree           WorktreeConfig         `yaml:"worktree"`
+	OnComplete         OnCompleteConfig       `yaml:"onComplete"`
+	Agent              AgentConfig            `yaml:"agent"`
+	Evaluation         EvaluationConfig       `yaml:"evaluation"`
+	SecurityEvaluation SecurityEvaluationConfig `yaml:"securityEvaluation"`
 }
 
 // EvaluationConfig holds adversarial evaluation settings.
@@ -28,6 +29,17 @@ type EvaluationConfig struct {
 	Model         string `yaml:"model"`          // model override for evaluators (e.g. "claude-sonnet-4-5-20250514")
 }
 
+// SecurityEvaluationConfig holds security-focused evaluation settings.
+// Operates independently of EvaluationConfig — can be enabled separately or together.
+type SecurityEvaluationConfig struct {
+	Enabled       bool   `yaml:"enabled"`       // opt-in, default false
+	Agents        int    `yaml:"agents"`         // number of security evaluator agents, default 1
+	PassThreshold int    `yaml:"passThreshold"`  // minimum score per criterion (1-10), default 7
+	MaxRetries    int    `yaml:"maxRetries"`     // retry attempts per story on failure, default 3
+	Provider      string `yaml:"provider"`       // defaults to same as main agent provider
+	Model         string `yaml:"model"`          // model override for security evaluators
+}
+
 // DefaultEvaluation returns sensible defaults for evaluation config.
 func DefaultEvaluation() EvaluationConfig {
 	return EvaluationConfig{
@@ -36,6 +48,16 @@ func DefaultEvaluation() EvaluationConfig {
 		PassThreshold: 7,
 		MaxRetries:    3,
 		Mode:          "caveman",
+	}
+}
+
+// DefaultSecurityEvaluation returns sensible defaults for security evaluation config.
+func DefaultSecurityEvaluation() SecurityEvaluationConfig {
+	return SecurityEvaluationConfig{
+		Enabled:       false,
+		Agents:        1,
+		PassThreshold: 7,
+		MaxRetries:    3,
 	}
 }
 
@@ -59,7 +81,8 @@ type OnCompleteConfig struct {
 // Default returns a Config with sensible defaults.
 func Default() *Config {
 	return &Config{
-		Evaluation: DefaultEvaluation(),
+		Evaluation:         DefaultEvaluation(),
+		SecurityEvaluation: DefaultSecurityEvaluation(),
 	}
 }
 
@@ -78,6 +101,20 @@ func (c *Config) ApplyEvaluationDefaults() {
 	}
 	if c.Evaluation.Mode == "" {
 		c.Evaluation.Mode = d.Mode
+	}
+}
+
+// ApplySecurityEvaluationDefaults fills in zero-value security evaluation fields with defaults.
+func (c *Config) ApplySecurityEvaluationDefaults() {
+	d := DefaultSecurityEvaluation()
+	if c.SecurityEvaluation.Agents == 0 {
+		c.SecurityEvaluation.Agents = d.Agents
+	}
+	if c.SecurityEvaluation.PassThreshold == 0 {
+		c.SecurityEvaluation.PassThreshold = d.PassThreshold
+	}
+	if c.SecurityEvaluation.MaxRetries == 0 {
+		c.SecurityEvaluation.MaxRetries = d.MaxRetries
 	}
 }
 
@@ -112,6 +149,7 @@ func Load(baseDir string) (*Config, error) {
 
 	// Fill in any zero-value evaluation fields with defaults
 	cfg.ApplyEvaluationDefaults()
+	cfg.ApplySecurityEvaluationDefaults()
 
 	return cfg, nil
 }
