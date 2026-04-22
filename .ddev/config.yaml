@@ -12,6 +12,7 @@ bind_all_interfaces: true
 hooks:
     post-start:
         - exec: bash ~/env.sh
+        - exec: bash .ddev/hooks/install-claude-code.sh
         - exec: cd /var/www/html/docs && npm install
 omit_containers: []
 host_webserver_port: "8185"
@@ -21,6 +22,7 @@ use_dns_when_possible: true
 composer_version: "2"
 web_environment:
     - CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+    - GH_TOKEN=$GH_TOKEN
     - GOPATH=/home/.go
     - PATH=/usr/local/go/bin:/home/.go/bin:$PATH
 nodejs_version: lts
